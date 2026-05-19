@@ -12,6 +12,40 @@
 .swiftpm/
 migrate_working_dir/
 
+# Build output
+pandora_box/build/
+build/
+
+# Python environments
+midas_env/
+
+# Python scripts (dev only)
+test_models.py
+convert_midas.py
+convert_depthanything.py
+
+# Model conversion artifacts
+midas.onnx
+midas_saved_model/
+midas_tflite_output/
+
+# Flutter
+.flutter-plugins
+.packages
+pubspec.lock
+
+# Android
+android/.gradle/
+android/app/src/main/GeneratedPluginRegistrant.java
+*.apk
+*.aab
+
+# Hive generated
+**/*.g.dart
+
+# Environment
+assets/config/.env
+
 # Python AI environment
 ai_env/
 
