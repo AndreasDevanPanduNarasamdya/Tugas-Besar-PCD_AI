@@ -100,6 +100,80 @@ class PointCloudBuilder {
     }
   }
 
+  void addFrameWithMask({
+    required Float32List depthMap,
+    required Uint8List segMask,
+    required List<bool> validMask,
+    required Uint8List rgbFrame,
+    required Matrix4 cameraPose,
+    required double focalLength,
+    required double cx,
+    required double cy,
+    int depthWidth = 518,
+    int depthHeight = 518,
+    int segWidth = 256,
+    int segHeight = 256,
+  }) {
+    if (isFull) return;
+
+    final totalPixels = depthWidth * depthHeight;
+    final step =
+        (totalPixels / (maxPoints - _points.length)).ceil().clamp(1, 8);
+
+    for (int y = 0; y < depthHeight; y += step) {
+      for (int x = 0; x < depthWidth; x += step) {
+        if (isFull) return;
+
+        final depthIdx = y * depthWidth + x;
+
+        // ── Skip edge pixels ──────────────────────────────────
+        if (!validMask[depthIdx]) continue;
+
+        final depth = depthMap[depthIdx];
+        if (depth < 0.05 || depth > 0.95) continue;
+
+        // ── Skip background pixels ────────────────────────────
+        final segX = (x * segWidth / depthWidth).round().clamp(0, segWidth - 1);
+        final segY =
+            (y * segHeight / depthHeight).round().clamp(0, segHeight - 1);
+        if (segMask[segY * segWidth + segX] == 0) continue;
+
+        // ── Unproject to 3D ───────────────────────────────────
+        final realDepth = depth * 5.0;
+        final px = (x - cx) * realDepth / focalLength;
+        final py = (y - cy) * realDepth / focalLength;
+        final pz = realDepth;
+
+        final localPoint = Vector4(px, py, pz, 1.0);
+        final worldPoint = cameraPose.transform(localPoint);
+
+        // ── Get color ─────────────────────────────────────────
+        final rgbIdx = depthIdx * 3;
+        final r = rgbFrame[rgbIdx] / 255.0;
+        final g = rgbFrame[rgbIdx + 1] / 255.0;
+        final b = rgbFrame[rgbIdx + 2] / 255.0;
+
+        // ── Estimate normal ───────────────────────────────────
+        final normal = _estimateNormal(
+          depthMap,
+          x,
+          y,
+          depthWidth,
+          depthHeight,
+          focalLength,
+          cx,
+          cy,
+        );
+
+        _points.add(PointCloudPoint(
+          position: Vector3(worldPoint.x, worldPoint.y, worldPoint.z),
+          color: Vector3(r, g, b),
+          normal: normal,
+        ));
+      }
+    }
+  }
+
   Vector3 _estimateNormal(
     Float32List depthMap,
     int x,

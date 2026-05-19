@@ -4,7 +4,7 @@ publish_to: none
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -12,6 +12,10 @@ dependencies:
 
   # Camera
   camera: ^0.10.5+9
+
+  flutter_animate: ^4.5.0
+
+  flutter_dotenv: ^5.1.0
 
   # AI / ML
 
@@ -37,7 +41,6 @@ dependencies:
   image: ^4.1.7
 
   # UI
-  flutter_animate: ^4.3.0
   percent_indicator: ^4.2.3
   cupertino_icons: ^1.0.2
   ar_flutter_plugin_flutterflow: ^0.7.56

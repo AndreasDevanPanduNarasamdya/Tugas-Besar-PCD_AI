@@ -1,63 +1,52 @@
-import 'package:equatable/equatable.dart';
-import 'dart:typed_data';
+part of 'scan_bloc.dart';
 
-abstract class ScanEvent extends Equatable {
+abstract class ScanEvent {
   const ScanEvent();
-  @override
-  List<Object?> get props => [];
 }
 
+/// Fired when ScanScreen is opened - starts camera
 class ScanStarted extends ScanEvent {
   const ScanStarted();
 }
 
-class ScanFrameReceived extends ScanEvent {
-  final Uint8List rgbFrame;
-  final int width;
-  final int height;
-
-  const ScanFrameReceived({
-    required this.rgbFrame,
-    required this.width,
-    required this.height,
-  });
-
-  @override
-  List<Object?> get props => [rgbFrame, width, height];
-}
-
+/// Fired when ScanScreen is closed - releases camera
 class ScanStopped extends ScanEvent {
   const ScanStopped();
 }
 
+/// User pressed the stop/render button - triggers mesh generation
 class ScanMeshGenerationRequested extends ScanEvent {
   const ScanMeshGenerationRequested();
 }
 
-class ScanSaveRequested extends ScanEvent {
-  final String name;
-  const ScanSaveRequested({required this.name});
-
-  @override
-  List<Object?> get props => [name];
-}
-
-class ScanExportRequested extends ScanEvent {
-  final String scanId;
-  const ScanExportRequested({required this.scanId});
-
-  @override
-  List<Object?> get props => [scanId];
-}
-
+/// User hit Re-scan - resets everything
 class ScanRescanRequested extends ScanEvent {
   const ScanRescanRequested();
 }
 
-class ScanDeleted extends ScanEvent {
-  final String scanId;
-  const ScanDeleted({required this.scanId});
+/// Save the scan with a name
+class ScanSaveRequested extends ScanEvent {
+  final String name;
+  const ScanSaveRequested({required this.name});
+}
 
-  @override
-  List<Object?> get props => [scanId];
+/// Export the scan
+class ScanExportRequested extends ScanEvent {
+  final String scanId;
+  const ScanExportRequested({required this.scanId});
+}
+
+/// A new camera frame arrived (triggers frame processing)
+class ScanFrameReceived extends ScanEvent {
+  const ScanFrameReceived();
+}
+
+/// Coverage/progress update from isolate
+class ScanProgressUpdated extends ScanEvent {
+  final double coveragePercent;
+  final int pointCount;
+  const ScanProgressUpdated({
+    required this.coveragePercent,
+    required this.pointCount,
+  });
 }
