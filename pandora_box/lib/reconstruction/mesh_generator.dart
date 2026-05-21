@@ -3,19 +3,19 @@ import 'dart:typed_data';
 import 'package:vector_math/vector_math.dart';
 import 'point_cloud_builder.dart';
 
-class Mesh {
-  final Float32List vertices; // x,y,z per vertex
-  final Uint32List indices; // triangles
-  final Float32List normals; // x,y,z per vertex
-  final Float32List uvs; // u,v per vertex
-  final Float32List colors; // r,g,b per vertex
+class MeshData {
+  final Float32List vertices;
+  final Uint32List indices;
+  final Float32List normals;
+  final Float32List uvs;
+  final Float32List colors;
 
   int get vertexCount => vertices.length ~/ 3;
   int get faceCount => indices.length ~/ 3;
   int get edgeCount => (faceCount * 3) ~/ 2;
   int get triangleCount => faceCount;
 
-  Mesh({
+  MeshData({
     required this.vertices,
     required this.indices,
     required this.normals,
@@ -25,10 +25,9 @@ class Mesh {
 }
 
 class MeshGenerator {
-  /// Generate mesh from point cloud using simple voxel-based approach
-  Mesh generate(List<PointCloudPoint> points) {
+  MeshData generate(List<PointCloudPoint> points) {
     if (points.isEmpty) {
-      return Mesh(
+      return MeshData(
         vertices: Float32List(0),
         indices: Uint32List(0),
         normals: Float32List(0),
@@ -37,13 +36,9 @@ class MeshGenerator {
       );
     }
 
-    // Step 1: Compute bounding box
     final bbox = _computeBoundingBox(points);
-
-    // Step 2: Generate UV coordinates
     final uvs = _generateUVs(points, bbox);
 
-    // Step 3: Build vertex buffers
     final vertices = Float32List(points.length * 3);
     final normals = Float32List(points.length * 3);
     final colors = Float32List(points.length * 3);
@@ -61,13 +56,10 @@ class MeshGenerator {
       colors[i * 3 + 2] = p.color.z;
     }
 
-    // Step 4: Generate triangles via Delaunay-like nearest neighbor
     final indices = _generateTriangles(points, bbox);
-
-    // Step 5: Remove degenerate faces
     final cleanIndices = _removeDegenerateFaces(indices, vertices);
 
-    return Mesh(
+    return MeshData(
       vertices: vertices,
       indices: cleanIndices,
       normals: normals,
@@ -95,44 +87,39 @@ class MeshGenerator {
 
   Float32List _generateUVs(List<PointCloudPoint> points, _BoundingBox bbox) {
     final uvs = Float32List(points.length * 2);
-
     final width = bbox.maxX - bbox.minX;
     final depth = bbox.maxZ - bbox.minZ;
     final height = bbox.maxY - bbox.minY;
 
-    // Auto-detect cylindrical vs box mapping
-    final isCylindrical =
-        height > (width * 1.5) && (width - depth).abs() < width * 0.3;
+    final isCylindrical = height > 0 &&
+        width > 0 &&
+        height > (width * 1.5) &&
+        (width - depth).abs() < width * 0.3;
 
     for (int i = 0; i < points.length; i++) {
       final p = points[i].position;
       double u, v;
 
       if (isCylindrical) {
-        // Cylindrical mapping
         final cx = (bbox.minX + bbox.maxX) / 2;
         final cz = (bbox.minZ + bbox.maxZ) / 2;
         u = (atan2(p.z - cz, p.x - cx) / (2 * pi) + 0.5);
-        v = (p.y - bbox.minY) / height;
+        v = height > 0 ? (p.y - bbox.minY) / height : 0.0;
       } else {
-        // Box mapping based on dominant normal direction
         final normal = points[i].normal;
         final ax = normal.x.abs();
         final ay = normal.y.abs();
         final az = normal.z.abs();
 
         if (ay >= ax && ay >= az) {
-          // Top/bottom face
-          u = (p.x - bbox.minX) / width;
-          v = (p.z - bbox.minZ) / depth;
+          u = width > 0 ? (p.x - bbox.minX) / width : 0.0;
+          v = depth > 0 ? (p.z - bbox.minZ) / depth : 0.0;
         } else if (ax >= ay && ax >= az) {
-          // Left/right face
-          u = (p.z - bbox.minZ) / depth;
-          v = (p.y - bbox.minY) / height;
+          u = depth > 0 ? (p.z - bbox.minZ) / depth : 0.0;
+          v = height > 0 ? (p.y - bbox.minY) / height : 0.0;
         } else {
-          // Front/back face
-          u = (p.x - bbox.minX) / width;
-          v = (p.y - bbox.minY) / height;
+          u = width > 0 ? (p.x - bbox.minX) / width : 0.0;
+          v = height > 0 ? (p.y - bbox.minY) / height : 0.0;
         }
       }
 
@@ -145,36 +132,40 @@ class MeshGenerator {
 
   Uint32List _generateTriangles(
       List<PointCloudPoint> points, _BoundingBox bbox) {
-    // Simple grid-based triangulation
-    // Works well for structured point clouds from depth cameras
     final List<int> indices = [];
     final int n = points.length;
-
-    // Build spatial grid for neighbor lookup
-    final int gridSize = 20;
+    const int gridSize = 20;
     final Map<int, List<int>> grid = {};
 
     final rangeX = bbox.maxX - bbox.minX;
     final rangeY = bbox.maxY - bbox.minY;
     final rangeZ = bbox.maxZ - bbox.minZ;
 
+    if (rangeX == 0 || rangeY == 0) return Uint32List(0);
+
     for (int i = 0; i < n; i++) {
       final p = points[i].position;
-      final gx = ((p.x - bbox.minX) / rangeX * (gridSize - 1)).round();
-      final gy = ((p.y - bbox.minY) / rangeY * (gridSize - 1)).round();
+      final gx = ((p.x - bbox.minX) / rangeX * (gridSize - 1))
+          .round()
+          .clamp(0, gridSize - 1);
+      final gy = ((p.y - bbox.minY) / rangeY * (gridSize - 1))
+          .round()
+          .clamp(0, gridSize - 1);
       final key = gy * gridSize + gx;
       grid.putIfAbsent(key, () => []).add(i);
     }
 
-    // Connect nearby points into triangles
     final double maxEdgeLen = (rangeX + rangeY + rangeZ) / (gridSize * 1.5);
 
     for (int i = 0; i < n; i++) {
       final p = points[i].position;
-      final gx = ((p.x - bbox.minX) / rangeX * (gridSize - 1)).round();
-      final gy = ((p.y - bbox.minY) / rangeY * (gridSize - 1)).round();
+      final gx = ((p.x - bbox.minX) / rangeX * (gridSize - 1))
+          .round()
+          .clamp(0, gridSize - 1);
+      final gy = ((p.y - bbox.minY) / rangeY * (gridSize - 1))
+          .round()
+          .clamp(0, gridSize - 1);
 
-      // Check neighboring cells
       for (int dy = 0; dy <= 1; dy++) {
         for (int dx = 0; dx <= 1; dx++) {
           final nx = gx + dx;
@@ -190,13 +181,13 @@ class MeshGenerator {
             final k = neighbors[a + 1];
             if (j == i || k == i) continue;
 
-            // Check edge lengths
             final dij = (points[i].position - points[j].position).length;
             final djk = (points[j].position - points[k].position).length;
             final dik = (points[i].position - points[k].position).length;
 
-            if (dij > maxEdgeLen || djk > maxEdgeLen || dik > maxEdgeLen)
+            if (dij > maxEdgeLen || djk > maxEdgeLen || dik > maxEdgeLen) {
               continue;
+            }
 
             indices.addAll([i, j, k]);
           }
@@ -216,6 +207,10 @@ class MeshGenerator {
       final c = indices[i + 2];
 
       if (a == b || b == c || a == c) continue;
+
+      if (a * 3 + 2 >= vertices.length ||
+          b * 3 + 2 >= vertices.length ||
+          c * 3 + 2 >= vertices.length) continue;
 
       final va =
           Vector3(vertices[a * 3], vertices[a * 3 + 1], vertices[a * 3 + 2]);

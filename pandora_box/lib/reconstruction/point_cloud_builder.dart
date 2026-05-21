@@ -55,7 +55,7 @@ class PointCloudBuilder {
         final depth = depthMap[depthIdx];
 
         // Skip very near or very far points
-        if (depth < 0.05 || depth > 0.95) continue;
+        // if (depth < 0.01 || depth > 0.99) continue;
 
         // Check segmentation mask — scale coords to seg size
         final segX = (x * segWidth / depthWidth).round().clamp(0, segWidth - 1);
@@ -130,13 +130,13 @@ class PointCloudBuilder {
         if (!validMask[depthIdx]) continue;
 
         final depth = depthMap[depthIdx];
-        if (depth < 0.05 || depth > 0.95) continue;
+        // if (depth < 0.01 || depth > 0.99) continue;
 
         // ── Skip background pixels ────────────────────────────
         final segX = (x * segWidth / depthWidth).round().clamp(0, segWidth - 1);
         final segY =
             (y * segHeight / depthHeight).round().clamp(0, segHeight - 1);
-        if (segMask[segY * segWidth + segX] == 0) continue;
+        // if (segMask[segY * segWidth + segX] == 0) continue;
 
         // ── Unproject to 3D ───────────────────────────────────
         final realDepth = depth * 5.0;

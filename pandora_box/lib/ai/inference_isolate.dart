@@ -1,3 +1,5 @@
+import 'package:flutter/services.dart';
+import 'package:flutter/services.dart';
 import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:tflite_flutter/tflite_flutter.dart';
@@ -34,9 +36,20 @@ class InferenceIsolate {
 
   Future<void> start() async {
     _receivePort = ReceivePort();
+
+    // 1. Load the models as raw bytes on the main thread
+    final depthByteData =
+        await rootBundle.load('assets/models/depth_anything_v2_small.tflite');
+    final segByteData =
+        await rootBundle.load('assets/models/mediapipe_segmentation.tflite');
+
+    final depthBytes = depthByteData.buffer.asUint8List();
+    final segBytes = segByteData.buffer.asUint8List();
+
+    // 2. Pass the bytes into the Isolate
     _isolate = await Isolate.spawn(
       _isolateEntry,
-      _receivePort!.sendPort,
+      [_receivePort!.sendPort, depthBytes, segBytes],
     );
 
     _sendPort = await _receivePort!.first;
@@ -88,25 +101,31 @@ class InferenceIsolate {
   }
 
   // Isolate entry point — runs in separate thread
-  static void _isolateEntry(SendPort mainSendPort) async {
+// Note the parameter change to List<dynamic>
+  static void _isolateEntry(List<dynamic> args) async {
+    // 1. Unpack the arguments (No tokens, just bytes!)
+    SendPort mainSendPort = args[0] as SendPort;
+    Uint8List depthBytes = args[1] as Uint8List;
+    Uint8List segBytes = args[2] as Uint8List;
+
     final receivePort = ReceivePort();
     mainSendPort.send(receivePort.sendPort);
 
     Interpreter? depthInterpreter;
     Interpreter? segInterpreter;
 
-    // Load both models once inside isolate
+    // 2. Load models from the buffers directly
     try {
-      depthInterpreter = await Interpreter.fromAsset(
-        'assets/models/depth_anything_v2_small.tflite',
-      );
-      segInterpreter = await Interpreter.fromAsset(
-        'assets/models/mediapipe_segmentation.tflite',
-      );
+      depthInterpreter = Interpreter.fromBuffer(depthBytes);
+      segInterpreter = Interpreter.fromBuffer(segBytes);
       print('[InferenceIsolate] Both models loaded in isolate');
     } catch (e) {
       print('[InferenceIsolate] Failed to load models: $e');
     }
+
+    // ... The rest of your await for (final message in receivePort) loop stays here
+
+    // ... The rest of your await for (final message in receivePort) loop stays exactly the same
 
     await for (final message in receivePort) {
       if (message is InferenceRequest) {

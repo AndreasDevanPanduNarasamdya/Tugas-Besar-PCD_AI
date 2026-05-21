@@ -6,69 +6,61 @@ import 'mesh_generator.dart';
 class TextureMapper {
   static const int textureSize = 2048;
 
-  /// Generate base color texture from mesh UVs and camera frames
   img.Image generateBaseColorMap(
-    Mesh mesh,
+    MeshData mesh,
     List<Uint8List> frames,
     List<int> frameWidths,
     List<int> frameHeights,
   ) {
     final texture = img.Image(width: textureSize, height: textureSize);
-
-    // Fill with neutral gray default
     img.fill(texture, color: img.ColorRgb8(128, 128, 128));
 
-    if (frames.isEmpty) return texture;
+    if (frames.isEmpty || mesh.indices.isEmpty) return texture;
 
-    // For each triangle, project frame colors onto UV space
     for (int t = 0; t < mesh.indices.length; t += 3) {
       final a = mesh.indices[t];
       final b = mesh.indices[t + 1];
       final c = mesh.indices[t + 2];
 
-      // Get UVs
+      if (a >= mesh.vertexCount ||
+          b >= mesh.vertexCount ||
+          c >= mesh.vertexCount) continue;
+
       final uvA = _getUV(mesh.uvs, a);
       final uvB = _getUV(mesh.uvs, b);
       final uvC = _getUV(mesh.uvs, c);
 
-      // Use first frame for color (simplification)
-      final frame = frames[0];
-      final fw = frameWidths[0];
-      final fh = frameHeights[0];
+      // Pick best frame — use middle frame for now
+      final frameIdx = frames.length ~/ 2;
+      final frame = frames[frameIdx];
+      final fw = frameWidths[frameIdx];
+      final fh = frameHeights[frameIdx];
 
-      // Rasterize triangle in UV space
-      _rasterizeTriangle(
-        texture,
-        uvA,
-        uvB,
-        uvC,
-        frame,
-        fw,
-        fh,
-      );
+      _rasterizeTriangle(texture, uvA, uvB, uvC, frame, fw, fh);
     }
 
-    // Apply sharpening
     return _sharpen(texture);
   }
 
-  /// Generate normal map from mesh normals
-  img.Image generateNormalMap(Mesh mesh) {
+  img.Image generateNormalMap(MeshData mesh) {
     final texture = img.Image(width: textureSize, height: textureSize);
-
-    // Default flat normal (pointing up in tangent space) = (128, 128, 255)
     img.fill(texture, color: img.ColorRgb8(128, 128, 255));
+
+    if (mesh.indices.isEmpty) return texture;
 
     for (int t = 0; t < mesh.indices.length; t += 3) {
       final a = mesh.indices[t];
       final b = mesh.indices[t + 1];
       final c = mesh.indices[t + 2];
 
+      if (a >= mesh.vertexCount ||
+          b >= mesh.vertexCount ||
+          c >= mesh.vertexCount) continue;
+
       final uvA = _getUV(mesh.uvs, a);
       final uvB = _getUV(mesh.uvs, b);
       final uvC = _getUV(mesh.uvs, c);
 
-      // Average normal of triangle
       final nA = _getNormal(mesh.normals, a);
       final nB = _getNormal(mesh.normals, b);
       final nC = _getNormal(mesh.normals, c);
@@ -77,7 +69,6 @@ class TextureMapper {
       final avgNY = (nA[1] + nB[1] + nC[1]) / 3;
       final avgNZ = (nA[2] + nB[2] + nC[2]) / 3;
 
-      // Convert normal to RGB ([-1,1] → [0,255])
       final r = ((avgNX + 1) / 2 * 255).round().clamp(0, 255);
       final g = ((avgNY + 1) / 2 * 255).round().clamp(0, 255);
       final b2 = ((avgNZ + 1) / 2 * 255).round().clamp(0, 255);
@@ -89,10 +80,12 @@ class TextureMapper {
   }
 
   List<double> _getUV(Float32List uvs, int idx) {
+    if (idx * 2 + 1 >= uvs.length) return [0.0, 0.0];
     return [uvs[idx * 2], uvs[idx * 2 + 1]];
   }
 
   List<double> _getNormal(Float32List normals, int idx) {
+    if (idx * 3 + 2 >= normals.length) return [0.0, 0.0, 1.0];
     return [normals[idx * 3], normals[idx * 3 + 1], normals[idx * 3 + 2]];
   }
 
@@ -105,38 +98,36 @@ class TextureMapper {
     int fw,
     int fh,
   ) {
-    // Convert UVs to texture pixel coords
-    final ax = (uvA[0] * textureSize).round();
-    final ay = ((1 - uvA[1]) * textureSize).round();
-    final bx = (uvB[0] * textureSize).round();
-    final by = ((1 - uvB[1]) * textureSize).round();
-    final cx = (uvC[0] * textureSize).round();
-    final cy = ((1 - uvC[1]) * textureSize).round();
+    final ax = (uvA[0] * textureSize).round().clamp(0, textureSize - 1);
+    final ay = ((1 - uvA[1]) * textureSize).round().clamp(0, textureSize - 1);
+    final bx = (uvB[0] * textureSize).round().clamp(0, textureSize - 1);
+    final by = ((1 - uvB[1]) * textureSize).round().clamp(0, textureSize - 1);
+    final cx = (uvC[0] * textureSize).round().clamp(0, textureSize - 1);
+    final cy = ((1 - uvC[1]) * textureSize).round().clamp(0, textureSize - 1);
 
-    final minX = [ax, bx, cx].reduce(min).clamp(0, textureSize - 1);
-    final maxX = [ax, bx, cx].reduce(max).clamp(0, textureSize - 1);
-    final minY = [ay, by, cy].reduce(min).clamp(0, textureSize - 1);
-    final maxY = [ay, by, cy].reduce(max).clamp(0, textureSize - 1);
+    final minX = [ax, bx, cx].reduce(min);
+    final maxX = [ax, bx, cx].reduce(max);
+    final minY = [ay, by, cy].reduce(min);
+    final maxY = [ay, by, cy].reduce(max);
 
     for (int py = minY; py <= maxY; py++) {
       for (int px = minX; px <= maxX; px++) {
-        // Barycentric check
         final w = _barycentric(ax, ay, bx, by, cx, cy, px, py);
         if (w[0] < 0 || w[1] < 0 || w[2] < 0) continue;
 
-        // Interpolate UV back to frame coords
-        final u = w[0] * uvA[0] + w[1] * uvB[0] + w[2] * uvC[0];
-        final v = w[0] * uvA[1] + w[1] * uvB[1] + w[2] * uvC[1];
+        final u =
+            (w[0] * uvA[0] + w[1] * uvB[0] + w[2] * uvC[0]).clamp(0.0, 1.0);
+        final v =
+            (w[0] * uvA[1] + w[1] * uvB[1] + w[2] * uvC[1]).clamp(0.0, 1.0);
 
         final fx = (u * fw).round().clamp(0, fw - 1);
         final fy = (v * fh).round().clamp(0, fh - 1);
 
         final frameIdx = (fy * fw + fx) * 3;
-        final r = frame[frameIdx];
-        final g = frame[frameIdx + 1];
-        final b = frame[frameIdx + 2];
+        if (frameIdx + 2 >= frame.length) continue;
 
-        texture.setPixelRgb(px, py, r, g, b);
+        texture.setPixelRgb(
+            px, py, frame[frameIdx], frame[frameIdx + 1], frame[frameIdx + 2]);
       }
     }
   }
@@ -150,17 +141,17 @@ class TextureMapper {
     int g,
     int b,
   ) {
-    final ax = (uvA[0] * textureSize).round();
-    final ay = ((1 - uvA[1]) * textureSize).round();
-    final bx = (uvB[0] * textureSize).round();
-    final by = ((1 - uvB[1]) * textureSize).round();
-    final cx = (uvC[0] * textureSize).round();
-    final cy = ((1 - uvC[1]) * textureSize).round();
+    final ax = (uvA[0] * textureSize).round().clamp(0, textureSize - 1);
+    final ay = ((1 - uvA[1]) * textureSize).round().clamp(0, textureSize - 1);
+    final bx = (uvB[0] * textureSize).round().clamp(0, textureSize - 1);
+    final by = ((1 - uvB[1]) * textureSize).round().clamp(0, textureSize - 1);
+    final cx = (uvC[0] * textureSize).round().clamp(0, textureSize - 1);
+    final cy = ((1 - uvC[1]) * textureSize).round().clamp(0, textureSize - 1);
 
-    final minX = [ax, bx, cx].reduce(min).clamp(0, textureSize - 1);
-    final maxX = [ax, bx, cx].reduce(max).clamp(0, textureSize - 1);
-    final minY = [ay, by, cy].reduce(min).clamp(0, textureSize - 1);
-    final maxY = [ay, by, cy].reduce(max).clamp(0, textureSize - 1);
+    final minX = [ax, bx, cx].reduce(min);
+    final maxX = [ax, bx, cx].reduce(max);
+    final minY = [ay, by, cy].reduce(min);
+    final maxY = [ay, by, cy].reduce(max);
 
     for (int py = minY; py <= maxY; py++) {
       for (int px = minX; px <= maxX; px++) {
@@ -190,7 +181,6 @@ class TextureMapper {
   }
 
   img.Image _sharpen(img.Image src) {
-    // Unsharp masking
     final blurred = img.gaussianBlur(src, radius: 1);
     final result = img.Image(width: src.width, height: src.height);
 

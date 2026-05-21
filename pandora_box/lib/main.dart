@@ -1,49 +1,38 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:hive_flutter/hive_flutter.dart'; // REQUIRED: Add this dependency
 import 'bloc/scan_bloc.dart';
-import 'storage/scan_repository.dart'; // REQUIRED: Import your repo
-import 'ui/theme/app_theme.dart';
+import 'config/env_config.dart';
+import 'export/obj_exporter.dart';
+import 'storage/scan_repository.dart';
 import 'ui/screens/welcome_screen.dart';
+import 'ui/theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await EnvConfig.load();
 
-  // 1. Initialize Hive and your repository
-  await Hive.initFlutter();
-  final scanRepo = ScanRepository();
-  await scanRepo.init();
+  final repository = ScanRepository();
+  await repository.init();
 
-  // 2. Lock to portrait orientation
-  SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
-
-  // 3. Full screen immersive
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    systemNavigationBarColor: AppTheme.darkBackground,
-    systemNavigationBarIconBrightness: Brightness.light,
-  ));
-
-  runApp(const PandoraBoxApp());
+  runApp(MyApp(repository: repository));
 }
 
-class PandoraBoxApp extends StatelessWidget {
-  const PandoraBoxApp({super.key});
+class MyApp extends StatelessWidget {
+  final ScanRepository repository;
+  const MyApp({super.key, required this.repository});
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (_) => ScanBloc(),
+      create: (_) => ScanBloc(
+        repository: repository,
+        exporter: ObjExporter(),
+      ),
       child: MaterialApp(
         title: 'Pandora Box',
-        debugShowCheckedModeBanner: false,
         theme: AppTheme.darkTheme,
         home: const WelcomeScreen(),
+        debugShowCheckedModeBanner: false,
       ),
     );
   }
