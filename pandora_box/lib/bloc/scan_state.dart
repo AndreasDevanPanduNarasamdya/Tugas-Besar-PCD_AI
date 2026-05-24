@@ -10,12 +10,40 @@ enum ScanStatus {
   error,
 }
 
+/// Label shown in the processing overlay on ScanScreen.
+/// Each value maps to one stage in _onMeshGenerationRequested.
+enum ProcessingStep {
+  idle,
+  generatingMesh,
+  mappingTextures,
+  sharpeningAndEncoding,
+  done,
+}
+
+extension ProcessingStepX on ProcessingStep {
+  String get label {
+    switch (this) {
+      case ProcessingStep.idle:
+        return '';
+      case ProcessingStep.generatingMesh:
+        return 'Generating mesh...';
+      case ProcessingStep.mappingTextures:
+        return 'Mapping textures...';
+      case ProcessingStep.sharpeningAndEncoding:
+        return 'Finalizing maps...';
+      case ProcessingStep.done:
+        return 'Done!';
+    }
+  }
+}
+
 class ScanState {
   final ScanStatus status;
   final double coveragePercent;
   final int pointCount;
   final int frameCount;
-  final double processingProgress;
+  final double processingProgress; // 0.0 → 1.0
+  final ProcessingStep processingStep;
   final MeshData? mesh;
   final Uint8List? baseMapBytes;
   final Uint8List? normalMapBytes;
@@ -29,6 +57,7 @@ class ScanState {
     this.pointCount = 0,
     this.frameCount = 0,
     this.processingProgress = 0.0,
+    this.processingStep = ProcessingStep.idle,
     this.mesh,
     this.baseMapBytes,
     this.normalMapBytes,
@@ -40,7 +69,7 @@ class ScanState {
   bool get isScanning => status == ScanStatus.scanning;
   bool get isProcessing => status == ScanStatus.processing;
   bool get hasMesh => mesh != null && status == ScanStatus.meshReady;
-  bool get hasError => errorMessage != null && status == ScanStatus.error;
+  bool get hasError => status == ScanStatus.error;
 
   ScanState copyWith({
     ScanStatus? status,
@@ -48,6 +77,7 @@ class ScanState {
     int? pointCount,
     int? frameCount,
     double? processingProgress,
+    ProcessingStep? processingStep,
     MeshData? mesh,
     Uint8List? baseMapBytes,
     Uint8List? normalMapBytes,
@@ -61,6 +91,7 @@ class ScanState {
       pointCount: pointCount ?? this.pointCount,
       frameCount: frameCount ?? this.frameCount,
       processingProgress: processingProgress ?? this.processingProgress,
+      processingStep: processingStep ?? this.processingStep,
       mesh: mesh ?? this.mesh,
       baseMapBytes: baseMapBytes ?? this.baseMapBytes,
       normalMapBytes: normalMapBytes ?? this.normalMapBytes,

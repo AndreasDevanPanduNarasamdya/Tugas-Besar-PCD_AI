@@ -20,13 +20,18 @@ class _TexturePreviewScreenState extends State<TexturePreviewScreen> {
       builder: (context, state) {
         return Scaffold(
           backgroundColor: AppTheme.darkBackground,
+          extendBodyBehindAppBar: true,
           appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
             leading: IconButton(
               icon: const Icon(Icons.chevron_left,
                   color: AppTheme.primaryRed, size: 30),
               onPressed: () => Navigator.pop(context),
             ),
-            title: const Text('Scan Result'),
+            title: const Text('Scan Result',
+                style: TextStyle(
+                    shadows: [Shadow(blurRadius: 4, color: Colors.black)])),
             actions: [
               Padding(
                 padding: const EdgeInsets.only(right: 16),
@@ -34,62 +39,67 @@ class _TexturePreviewScreenState extends State<TexturePreviewScreen> {
                   width: 32,
                   height: 32,
                   decoration: const BoxDecoration(
-                    color: AppTheme.primaryRed,
-                    shape: BoxShape.circle,
-                  ),
+                      color: AppTheme.primaryRed, shape: BoxShape.circle),
                   child: const Icon(Icons.view_in_ar,
                       color: Colors.white, size: 18),
                 ),
               ),
             ],
           ),
-          body: Column(
+          body: Stack(
+            fit: StackFit.expand,
             children: [
-              // ── Stats bar ──────────────────────────────────────────────
-              ModelStatsBar(
-                faces: state.mesh?.faceCount ?? 0,
-                vertices: state.mesh?.vertexCount ?? 0,
-                edges: state.mesh?.edgeCount ?? 0,
-                triangles: state.mesh?.triangleCount ?? 0,
-              ),
-
-              const SizedBox(height: 8),
-
-              // ── Base / Normal toggle ───────────────────────────────────
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildToggle('Base', _showBaseMap,
-                      () => setState(() => _showBaseMap = true)),
-                  const SizedBox(width: 8),
-                  _buildToggle('Normal', !_showBaseMap,
-                      () => setState(() => _showBaseMap = false)),
-                ],
-              ),
-
-              const SizedBox(height: 8),
-
-              // ── Texture display ────────────────────────────────────────
-              Expanded(
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.cardBackground,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.cardBorder),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: _buildMapContent(state),
-                  ),
+              // ── Layer 1: Full Screen Texture ───────────────────────────
+              Container(
+                color: Colors.black,
+                child: InteractiveViewer(
+                  minScale: 1.0,
+                  maxScale: 4.0,
+                  child: _buildMapContent(state),
                 ),
               ),
 
-              const SizedBox(height: 8),
+              // ── Layer 2: Floating UI Controls ────────────────────────────
+              SafeArea(
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: AppTheme.darkBackground.withOpacity(0.85),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: AppTheme.primaryRed.withOpacity(0.5)),
+                        ),
+                        child: ModelStatsBar(
+                          faces: state.mesh?.faceCount ?? 0,
+                          vertices: state.mesh?.vertexCount ?? 0,
+                          edges: state.mesh?.edgeCount ?? 0,
+                          triangles: state.mesh?.triangleCount ?? 0,
+                        ),
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildToggle('Base', _showBaseMap,
+                            () => setState(() => _showBaseMap = true)),
+                        const SizedBox(width: 8),
+                        _buildToggle('Normal', !_showBaseMap,
+                            () => setState(() => _showBaseMap = false)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
 
-              // ── Bottom buttons ─────────────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.all(16),
+              // ── Layer 3: Bottom Action Buttons ───────────────────────────
+              Positioned(
+                bottom: 16,
+                left: 16,
+                right: 16,
                 child: Row(
                   children: [
                     Expanded(
@@ -98,15 +108,15 @@ class _TexturePreviewScreenState extends State<TexturePreviewScreen> {
                           context
                               .read<ScanBloc>()
                               .add(const ScanRescanRequested());
-                          Navigator.popUntil(
-                              context, (r) => r.settings.name == '/');
+                          Navigator.popUntil(context, (r) => r.isFirst);
                         },
-                        icon: Icon(Icons.refresh,
-                            color: AppTheme.textGrey, size: 18),
-                        label: Text('Re-Scan',
-                            style: TextStyle(color: AppTheme.textGrey)),
+                        icon: const Icon(Icons.refresh,
+                            color: Colors.white, size: 18),
+                        label: const Text('Re-Scan',
+                            style: TextStyle(color: Colors.white)),
                         style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: AppTheme.textGrey),
+                          backgroundColor: Colors.black.withOpacity(0.6),
+                          side: const BorderSide(color: Colors.white54),
                           padding: const EdgeInsets.symmetric(vertical: 13),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(25)),
@@ -116,9 +126,11 @@ class _TexturePreviewScreenState extends State<TexturePreviewScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: () => context
-                            .read<ScanBloc>()
-                            .add(const ScanSaveRequested(name: 'New Scan')),
+                        onPressed: state.status == ScanStatus.saving
+                            ? null
+                            : () => context
+                                .read<ScanBloc>()
+                                .add(const ScanSaveRequested(name: 'New Scan')),
                         icon: const Icon(Icons.download, size: 18),
                         label: const Text('Save'),
                         style: ElevatedButton.styleFrom(
@@ -133,40 +145,26 @@ class _TexturePreviewScreenState extends State<TexturePreviewScreen> {
               ),
             ],
           ),
-          bottomNavigationBar: _buildBottomNav(),
         );
       },
     );
   }
 
   Widget _buildMapContent(ScanState state) {
-    if (_showBaseMap) {
-      if (state.baseMapBytes != null) {
-        return Image.memory(state.baseMapBytes!, fit: BoxFit.contain);
-      }
-      return _buildPlaceholder('Base map not generated yet');
-    } else {
-      if (state.normalMapBytes != null) {
-        return Image.memory(state.normalMapBytes!, fit: BoxFit.contain);
-      }
-      return _buildPlaceholder('Normal map not generated yet');
+    if (_showBaseMap && state.baseMapBytes != null) {
+      return Image.memory(state.baseMapBytes!, fit: BoxFit.contain);
+    } else if (!_showBaseMap && state.normalMapBytes != null) {
+      return Image.memory(state.normalMapBytes!, fit: BoxFit.contain);
     }
-  }
-
-  Widget _buildPlaceholder(String message) {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.image_outlined, color: AppTheme.textDarkGrey, size: 52),
+          Icon(Icons.image_outlined,
+              color: AppTheme.textDarkGrey.withOpacity(0.5), size: 52),
           const SizedBox(height: 12),
-          Text(message,
+          const Text('Texture not generated yet',
               style: TextStyle(color: AppTheme.textGrey, fontSize: 13)),
-          const SizedBox(height: 6),
-          Text(
-            'Complete a scan first to generate maps',
-            style: TextStyle(color: AppTheme.textDarkGrey, fontSize: 11),
-          ),
         ],
       ),
     );
@@ -179,11 +177,10 @@ class _TexturePreviewScreenState extends State<TexturePreviewScreen> {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
         decoration: BoxDecoration(
-          color: isActive ? AppTheme.primaryRed : Colors.transparent,
+          color: isActive ? AppTheme.primaryRed : Colors.black.withOpacity(0.6),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isActive ? AppTheme.primaryRed : AppTheme.textGrey,
-          ),
+              color: isActive ? AppTheme.primaryRed : AppTheme.textGrey),
         ),
         child: Text(
           label,
@@ -193,53 +190,6 @@ class _TexturePreviewScreenState extends State<TexturePreviewScreen> {
             fontSize: 13,
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildBottomNav() {
-    return Container(
-      height: 72,
-      decoration: const BoxDecoration(
-        color: AppTheme.bottomNavBg,
-        border: Border(top: BorderSide(color: AppTheme.cardBorder, width: 0.5)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.home, color: AppTheme.textGrey, size: 24),
-              Text('Home',
-                  style: TextStyle(color: AppTheme.textGrey, fontSize: 10)),
-            ],
-          ),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  border: Border.all(color: AppTheme.primaryRed, width: 1.5),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child:
-                    Icon(Icons.crop_free, color: AppTheme.primaryRed, size: 22),
-              ),
-              Text('Scan Object',
-                  style: TextStyle(color: AppTheme.primaryRed, fontSize: 10)),
-            ],
-          ),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.settings, color: AppTheme.textGrey, size: 24),
-              Text('Settings',
-                  style: TextStyle(color: AppTheme.textGrey, fontSize: 10)),
-            ],
-          ),
-        ],
       ),
     );
   }

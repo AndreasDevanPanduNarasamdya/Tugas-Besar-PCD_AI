@@ -1,52 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../theme/app_theme.dart';
-import '../widgets/scan_card.dart';
-import '../../storage/scan_model.dart'; // FIXED: Proper relative import
 import 'scan_screen.dart';
 
 class MainMenuScreen extends StatelessWidget {
   const MainMenuScreen({super.key});
-
-  // ── Demo data - mapped perfectly to your Hive ScanModel ────────────────
-  static final List<ScanModel> _demoScans = [
-    ScanModel()
-      ..modelId = '1'
-      ..modelName = 'Car4'
-      ..timestamp = DateTime(2025, 11, 5)
-      ..fileSizeMb = 431.0
-      ..faceCount = 150
-      ..vertexCount = 33
-      ..edgeCount = 94
-      ..triangleCount = 33,
-    ScanModel()
-      ..modelId = '2'
-      ..modelName = 'Water Bottle'
-      ..timestamp = DateTime(2025, 11, 5)
-      ..fileSizeMb = 92.0
-      ..faceCount = 150
-      ..vertexCount = 33
-      ..edgeCount = 94
-      ..triangleCount = 33,
-    ScanModel()
-      ..modelId = '3'
-      ..modelName = 'Laptop5'
-      ..timestamp = DateTime(2025, 11, 5)
-      ..fileSizeMb = 327.0
-      ..faceCount = 150
-      ..vertexCount = 33
-      ..edgeCount = 94
-      ..triangleCount = 33,
-    ScanModel()
-      ..modelId = '4'
-      ..modelName = 'Pringles Can'
-      ..timestamp = DateTime(2025, 11, 5)
-      ..fileSizeMb = 327.0
-      ..faceCount = 150
-      ..vertexCount = 33
-      ..edgeCount = 94
-      ..triangleCount = 33,
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -56,8 +13,7 @@ class MainMenuScreen extends StatelessWidget {
         title: const Text('Pandora Box'),
         actions: [
           IconButton(
-            // FIXED: Removed const
-            icon: Icon(Icons.settings, color: AppTheme.primaryRed),
+            icon: const Icon(Icons.settings, color: AppTheme.primaryRed),
             onPressed: () {},
           ),
         ],
@@ -68,8 +24,7 @@ class MainMenuScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // FIXED: Removed const
-              Text(
+              const Text(
                 'Previously Scanned Models',
                 style: TextStyle(
                   color: AppTheme.textGrey,
@@ -79,83 +34,82 @@ class MainMenuScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
 
-              // Scan list
+              // The empty state remains until you perform a real scan
               Expanded(
-                child: ListView.builder(
-                  itemCount: _demoScans.length,
-                  itemBuilder: (context, index) {
-                    final scan = _demoScans[index];
-                    return ScanCard(
-                      name: scan.modelName,
-                      dateStr:
-                          scan.formattedDate, // Uses your ScanModel getter!
-                      fileSizeLabel: scan.fileSizeLabel,
-                      faceCount: scan.faceCount,
-                      vertexCount: scan.vertexCount,
-                      edgeCount: scan.edgeCount,
-                      triangleCount: scan.triangleCount,
-                    );
-                  },
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.inventory_2_outlined,
+                          color: AppTheme.textDarkGrey.withOpacity(0.5),
+                          size: 64),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No scans yet.',
+                        style:
+                            TextStyle(color: AppTheme.textGrey, fontSize: 16),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Tap "Scan Object" to begin.',
+                        style: TextStyle(
+                            color: AppTheme.textDarkGrey, fontSize: 12),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
         ),
       ),
-      bottomNavigationBar: BottomAppBar(
-        color: AppTheme.cardBackground,
+      // ── Accurate Nav Bar ─────────────────────────────────────────
+      bottomNavigationBar: Container(
+        height: 80,
+        color: Colors.black,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            // Home (left - active)
+            // Home
             Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // FIXED: Removed const
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
                 Icon(Icons.home, color: AppTheme.primaryRed, size: 24),
-                const SizedBox(height: 2),
+                SizedBox(height: 4),
                 Text('Home',
                     style: TextStyle(color: AppTheme.primaryRed, fontSize: 10)),
               ],
             ),
 
-            // Scan Object (center - prominent)
+            // Scan Object (The round red button)
             GestureDetector(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ScanScreen()),
-                );
-              },
+              onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const ScanScreen())),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
                     padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      // FIXED: Removed const
-                      border:
-                          Border.all(color: AppTheme.primaryRed, width: 1.5),
-                      borderRadius: BorderRadius.circular(10),
+                    decoration: const BoxDecoration(
+                      color: AppTheme.primaryRed, // Red background
+                      shape: BoxShape.circle, // Round button
                     ),
-                    child: Icon(Icons.crop_free,
-                        color: AppTheme.primaryRed, size: 22),
+                    child: const Icon(Icons.crop_free,
+                        color: Colors.white, size: 24), // White icon
                   ),
-                  const SizedBox(height: 2),
-                  Text('Scan Object',
-                      style:
-                          TextStyle(color: AppTheme.primaryRed, fontSize: 10)),
+                  const SizedBox(height: 4),
+                  const Text('Scan Object',
+                      style: TextStyle(color: Colors.white, fontSize: 10)),
                 ],
               ),
             ),
 
             // Settings
             Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // FIXED: Removed const
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
                 Icon(Icons.settings, color: AppTheme.textGrey, size: 24),
-                const SizedBox(height: 2),
+                SizedBox(height: 4),
                 Text('Settings',
                     style: TextStyle(color: AppTheme.textGrey, fontSize: 10)),
               ],

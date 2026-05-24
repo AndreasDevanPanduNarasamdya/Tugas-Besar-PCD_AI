@@ -17,9 +17,10 @@ class ModelMenuScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<ScanBloc, ScanState>(
       builder: (context, state) {
+        // Calculate real size, fallback to 0 if null
         final sizeMb = ((state.baseMapBytes?.length ?? 0) / (1024 * 1024));
         final sizeLabel =
-            sizeMb > 0 ? '${sizeMb.toStringAsFixed(0)} MB' : '327 MB';
+            sizeMb > 0 ? '${sizeMb.toStringAsFixed(1)} MB' : '0 MB';
 
         return Scaffold(
           backgroundColor: AppTheme.darkBackground,
@@ -31,7 +32,6 @@ class ModelMenuScreen extends StatelessWidget {
             ),
             title: const SizedBox.shrink(),
             actions: [
-              // Red diamond icon top-right
               Padding(
                 padding: const EdgeInsets.only(right: 16),
                 child: Container(
@@ -64,11 +64,10 @@ class ModelMenuScreen extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: state.baseMapBytes != null
-                        ? Image.memory(state.baseMapBytes!, fit: BoxFit.contain)
-                        : Center(
-                            child: Icon(Icons.view_in_ar,
-                                color: AppTheme.primaryRed, size: 72),
-                          ),
+                        ? Image.memory(state.baseMapBytes!, fit: BoxFit.cover)
+                        : const Center(
+                            child: Icon(Icons.image_not_supported,
+                                color: AppTheme.textDarkGrey, size: 72)),
                   ),
                 ),
 
@@ -81,32 +80,29 @@ class ModelMenuScreen extends StatelessWidget {
                     Text(
                       scanName,
                       style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 20,
-                      ),
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 20),
                     ),
                     Text(
                       sizeLabel,
-                      style: TextStyle(
-                        color: AppTheme.textGrey,
-                        fontSize: 14,
-                      ),
+                      style: const TextStyle(
+                          color: AppTheme.textGrey, fontSize: 14),
                     ),
                   ],
                 ),
 
                 const SizedBox(height: 20),
 
-                // ── Stats rows ────────────────────────────────────────────
+                // ── Real Stats rows ────────────────────────────────────────────
                 _buildStatRow(Icons.square_outlined, 'Faces',
-                    '${state.mesh?.faceCount ?? 150}'),
+                    '${state.mesh?.faceCount ?? 0}'),
                 _buildStatRow(
-                    Icons.timeline, 'Edges', '${state.mesh?.edgeCount ?? 94}'),
+                    Icons.timeline, 'Edges', '${state.mesh?.edgeCount ?? 0}'),
                 _buildStatRow(Icons.adjust, 'Vertices',
-                    '${state.mesh?.vertexCount ?? 33}'),
+                    '${state.mesh?.vertexCount ?? 0}'),
                 _buildStatRow(Icons.change_history, 'Triangles',
-                    '${state.mesh?.triangleCount ?? 33}'),
+                    '${state.mesh?.triangleCount ?? 0}'),
 
                 const Spacer(),
 
@@ -114,9 +110,8 @@ class ModelMenuScreen extends StatelessWidget {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    onPressed: () {
-                      // TODO: Navigate to 3D viewer with this scan
-                    },
+                    onPressed: () =>
+                        Navigator.pop(context), // Goes back to 3D Viewer
                     icon: const Icon(Icons.desktop_windows_outlined, size: 18),
                     label: const Text('3D Viewer'),
                     style: OutlinedButton.styleFrom(
@@ -128,9 +123,7 @@ class ModelMenuScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 10),
-
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
@@ -148,15 +141,14 @@ class ModelMenuScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 10),
-
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () {
                       context.read<ScanBloc>().add(const ScanRescanRequested());
-                      Navigator.pop(context);
+                      Navigator.popUntil(
+                          context, (r) => r.settings.name == '/');
                     },
                     icon: const Icon(Icons.refresh, size: 18),
                     label: const Text('Re-scan Object'),
@@ -168,12 +160,11 @@ class ModelMenuScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 16),
               ],
             ),
           ),
-          bottomNavigationBar: _buildBottomNav(),
+          bottomNavigationBar: _buildBottomNav(context),
         );
       },
     );
@@ -186,25 +177,20 @@ class ModelMenuScreen extends StatelessWidget {
         children: [
           Icon(icon, color: AppTheme.textGrey, size: 20),
           const SizedBox(width: 10),
-          Text(
-            label,
-            style: TextStyle(color: AppTheme.textGrey, fontSize: 14),
-          ),
+          Text(label,
+              style: const TextStyle(color: AppTheme.textGrey, fontSize: 14)),
           const Spacer(),
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-            ),
-          ),
+          Text(value,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14)),
         ],
       ),
     );
   }
 
-  Widget _buildBottomNav() {
+  Widget _buildBottomNav(BuildContext context) {
     return Container(
       height: 72,
       decoration: const BoxDecoration(
@@ -214,13 +200,16 @@ class ModelMenuScreen extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.home, color: AppTheme.primaryRed, size: 24),
-              Text('Home',
-                  style: TextStyle(color: AppTheme.primaryRed, fontSize: 10)),
-            ],
+          GestureDetector(
+            onTap: () => Navigator.popUntil(context, (r) => r.isFirst),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(Icons.home, color: AppTheme.textGrey, size: 24),
+                Text('Home',
+                    style: TextStyle(color: AppTheme.textGrey, fontSize: 10)),
+              ],
+            ),
           ),
           Column(
             mainAxisSize: MainAxisSize.min,
@@ -231,16 +220,16 @@ class ModelMenuScreen extends StatelessWidget {
                   border: Border.all(color: AppTheme.primaryRed, width: 1.5),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child:
-                    Icon(Icons.crop_free, color: AppTheme.primaryRed, size: 22),
+                child: const Icon(Icons.crop_free,
+                    color: AppTheme.primaryRed, size: 22),
               ),
-              Text('Scan Object',
+              const Text('Scan Object',
                   style: TextStyle(color: AppTheme.primaryRed, fontSize: 10)),
             ],
           ),
           Column(
             mainAxisSize: MainAxisSize.min,
-            children: [
+            children: const [
               Icon(Icons.settings, color: AppTheme.textGrey, size: 24),
               Text('Settings',
                   style: TextStyle(color: AppTheme.textGrey, fontSize: 10)),

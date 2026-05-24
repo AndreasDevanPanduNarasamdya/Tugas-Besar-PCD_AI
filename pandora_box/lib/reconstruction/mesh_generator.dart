@@ -134,7 +134,7 @@ class MeshGenerator {
       List<PointCloudPoint> points, _BoundingBox bbox) {
     final List<int> indices = [];
     final int n = points.length;
-    const int gridSize = 20;
+    const int gridSize = 10; // was 20 — faster
     final Map<int, List<int>> grid = {};
 
     final rangeX = bbox.maxX - bbox.minX;
@@ -185,9 +185,8 @@ class MeshGenerator {
             final djk = (points[j].position - points[k].position).length;
             final dik = (points[i].position - points[k].position).length;
 
-            if (dij > maxEdgeLen || djk > maxEdgeLen || dik > maxEdgeLen) {
+            if (dij > maxEdgeLen || djk > maxEdgeLen || dik > maxEdgeLen)
               continue;
-            }
 
             indices.addAll([i, j, k]);
           }
