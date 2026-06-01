@@ -2,13 +2,15 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 
 class FramePreprocessor {
-  // Reduced input sizes for speed
-  static const int depthInputSize = 256; // was 518 — halved
-  static const int segInputSize = 128; // was 256 — halved
+  // Put these back to the model's native hardcoded resolution
+  static const int depthInputSize = 518; 
+  static const int segInputSize = 256; 
 
-  // Reusable buffers to avoid allocation
-  static final _depthBuffer = Float32List(256 * 256 * 3);
-  static final _segBuffer = Float32List(128 * 128 * 3);
+  // Reusable buffers
+  static final _depthBuffer = Float32List(518 * 518 * 3);
+  static final _segBuffer = Float32List(256 * 256 * 3);
+  
+  // ... leave the rest of your new code alone!
 
   Uint8List yuv420ToRgb(
     Uint8List yPlane,

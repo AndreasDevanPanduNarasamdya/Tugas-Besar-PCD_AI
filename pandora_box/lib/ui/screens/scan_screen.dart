@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:camera/camera.dart';
+
 import '../../bloc/scan_bloc.dart';
 import '../theme/app_theme.dart';
-import '../widgets/progress_ring.dart';
 import 'preview_3d_screen.dart';
 
 class ScanScreen extends StatefulWidget {
@@ -15,28 +15,18 @@ class ScanScreen extends StatefulWidget {
 
 class _ScanScreenState extends State<ScanScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _pulseController;
-  late Animation<double> _pulseAnim;
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: true);
-    _pulseAnim = Tween<double>(begin: 0.85, end: 1.0).animate(_pulseController);
-
+    // Start the camera session
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ScanBloc>().add(const ScanStarted());
     });
   }
 
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    super.dispose();
-  }
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -68,86 +58,28 @@ class _ScanScreenState extends State<ScanScreen>
               icon: const Icon(Icons.chevron_left,
                   color: AppTheme.primaryRed, size: 30),
               onPressed: () {
-                context.read<ScanBloc>().add(const ScanStopped());
                 Navigator.pop(context);
               },
             ),
-            title: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 7),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.5),
-                border: Border.all(color: AppTheme.primaryRed, width: 1.5),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                state.isProcessing ? 'Rendering' : 'Scanning',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1,
-                ),
-              ),
-            ),
+            title: _buildStepIndicator(state),
           ),
           body: Stack(
             fit: StackFit.expand,
             children: [
-              // ── Camera feed ──────────────────────────────────────────
+              // ── Layer 1: Camera Feed ──────────────────────────────────────
               _buildCameraFeed(state),
 
-              // ── Scan overlay (mesh grid) — only while scanning ────────
-              // NOTE: wire up ScanOverlayPainter here if needed
-              // if (state.isScanning) CustomPaint(painter: ScanOverlayPainter(...)),
+              // ── Layer 2: Viewfinder Target (Only when scanning) ───────────
+              if (state.isScanning) _buildAlignmentTarget(),
 
-              // ── Processing overlay — replaces camera view ─────────────
+              // ── Layer 3: Processing Overlay ───────────────────────────────
               if (state.isProcessing) _buildProcessingOverlay(state),
 
-              // ── Instruction text (scanning only) ──────────────────────
-              if (state.isScanning)
-                SafeArea(
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 16),
-                      child: Text(
-                        'Point the camera at the object...',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.9),
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          shadows: const [
-                            Shadow(blurRadius: 8, color: Colors.black)
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-              // ── Progress ring top-right ───────────────────────────────
-              if (state.isScanning)
-                SafeArea(
-                  child: Align(
-                    alignment: Alignment.topRight,
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 12, right: 16),
-                      child: ScanProgressRing(
-                        percent: state.coveragePercent,
-                        pointCount: state.pointCount,
-                      ),
-                    ),
-                  ),
-                ),
-
-              // ── Stop button ───────────────────────────────────────────
-              if (!state.isProcessing)
-                Positioned(
-                  bottom: 40,
-                  left: 0,
-                  right: 0,
-                  child: Center(child: _buildStopButton(context, state)),
-                ),
+              // ── Layer 4: Instructions & Shutter (Only when scanning) ──────
+              if (state.isScanning) ...[
+                _buildInstructionText(state),
+                _buildShutterButton(context, state),
+              ],
             ],
           ),
         );
@@ -155,30 +87,156 @@ class _ScanScreenState extends State<ScanScreen>
     );
   }
 
-  // ── Camera feed ───────────────────────────────────────────────────────────
-  // IMPORTANT: Never render CameraPreview once processing starts.
-  // The controller is disposed inside _onMeshGenerationRequested, but Flutter
-  // fires one more build() frame after the state change, causing:
-  //   "buildPreview() was called on a disposed CameraController"
-  // The fix: bail out on isProcessing || !isCameraReady BEFORE touching controller.
+  // ── UI Components ─────────────────────────────────────────────────────────
+
+  Widget _buildStepIndicator(ScanState state) {
+    // We will add capturedCount (0 to 4) to your ScanState next.
+    final count = state.capturedCount ?? 0;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.5),
+        border: Border.all(color: AppTheme.primaryRed, width: 1.5),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        state.isProcessing ? 'AI Processing' : 'Angle ${count + 1} of 4',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 1,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAlignmentTarget() {
+    return Center(
+      child: Container(
+        width: 280,
+        height: 380,
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Stack(
+          children: [
+            // Center crosshair
+            Center(
+              child: Icon(Icons.add,
+                  color: Colors.white.withOpacity(0.3), size: 40),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInstructionText(ScanState state) {
+    final count = state.capturedCount ?? 0;
+    String instruction = "";
+
+    switch (count) {
+      case 0:
+        instruction = "Frame the FRONT of the object";
+        break;
+      case 1:
+        instruction = "Rotate object 90° to the RIGHT";
+        break;
+      case 2:
+        instruction = "Rotate object 90° to the BACK";
+        break;
+      case 3:
+        instruction = "Rotate object 90° to the LEFT";
+        break;
+      default:
+        instruction = "Preparing AI...";
+        break;
+    }
+
+    return SafeArea(
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.6),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              instruction,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShutterButton(BuildContext context, ScanState state) {
+    final isCapturing = state.isCapturingFrame ?? false;
+
+    return Positioned(
+      bottom: 40,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: GestureDetector(
+          onTap: isCapturing
+              ? null
+              : () => context.read<ScanBloc>().add(const ScanPhotoCaptured()),
+          child: Container(
+            width: 76,
+            height: 76,
+            decoration: BoxDecoration(
+              color: isCapturing ? Colors.grey : Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(color: AppTheme.primaryRed, width: 4),
+              boxShadow: [
+                BoxShadow(
+                  color: AppTheme.primaryRed.withOpacity(0.4),
+                  blurRadius: 15,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: Center(
+              child: isCapturing
+                  ? const CircularProgressIndicator(color: AppTheme.primaryRed)
+                  : Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.black, width: 2),
+                      ),
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Standard Camera & Processing Views ────────────────────────────────────
 
   Widget _buildCameraFeed(ScanState state) {
     if (state.isProcessing || !state.isCameraReady) {
-      // Processing overlay covers the screen anyway — return empty
       return Container(color: Colors.black);
     }
-
-    if (state.status == ScanStatus.error) {
-      return _buildErrorState(state.errorMessage);
-    }
-
     final controller = context.read<ScanBloc>().cameraController;
-
-    // Guard: controller may be disposed between state change and this build frame
     if (controller == null || !controller.value.isInitialized) {
       return Container(color: Colors.black);
     }
-
     try {
       final size = MediaQuery.of(context).size;
       var scale = size.aspectRatio * controller.value.aspectRatio;
@@ -187,124 +245,47 @@ class _ScanScreenState extends State<ScanScreen>
         scale: scale,
         child: Center(child: CameraPreview(controller)),
       );
-    } on CameraException catch (e) {
-      // Disposed between the null-check above and buildPreview() — safe to ignore
-      print(
-          '[ScanScreen] CameraPreview build skipped (disposed): ${e.description}');
-      return Container(color: Colors.black);
     } catch (e) {
-      print('[ScanScreen] CameraPreview unexpected error: $e');
       return Container(color: Colors.black);
     }
   }
 
-  Widget _buildErrorState(String? message) {
-    return Container(
-      color: Colors.black,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.camera_alt,
-                color: AppTheme.textDarkGrey, size: 48),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                message ?? 'Camera unavailable',
-                style: const TextStyle(color: AppTheme.textGrey),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Processing overlay ────────────────────────────────────────────────────
-
   Widget _buildProcessingOverlay(ScanState state) {
     return Container(
-      color: Colors.black.withOpacity(0.85),
+      color: Colors.black.withOpacity(0.9),
       child: Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 40),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Step label
               Text(
                 state.processingStep.label,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 15,
+                  fontSize: 16,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: 0.3,
+                  letterSpacing: 0.5,
                 ),
               ),
-              const SizedBox(height: 20),
-
-              // Progress bar
+              const SizedBox(height: 24),
               ClipRRect(
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(8),
                 child: LinearProgressIndicator(
                   value: state.processingProgress,
-                  minHeight: 6,
+                  minHeight: 8,
                   backgroundColor: AppTheme.cardBackground,
                   valueColor: const AlwaysStoppedAnimation(AppTheme.primaryRed),
                 ),
               ),
-              const SizedBox(height: 10),
-
-              // Percentage
+              const SizedBox(height: 16),
               Text(
-                '${(state.processingProgress * 100).toInt()}%',
-                style: const TextStyle(color: AppTheme.textGrey, fontSize: 12),
-              ),
-
-              const SizedBox(height: 24),
-
-              // Frame + point stats for context
-              Text(
-                '${state.frameCount} frames  ·  ${state.pointCount} points',
-                style:
-                    const TextStyle(color: AppTheme.textDarkGrey, fontSize: 11),
+                'Aligning Point Clouds...',
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.7), fontSize: 13),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  // ── Stop / render button ──────────────────────────────────────────────────
-
-  Widget _buildStopButton(BuildContext context, ScanState state) {
-    return GestureDetector(
-      onTap: state.isScanning
-          ? () =>
-              context.read<ScanBloc>().add(const ScanMeshGenerationRequested())
-          : null,
-      child: AnimatedBuilder(
-        animation: _pulseAnim,
-        builder: (_, child) =>
-            Transform.scale(scale: _pulseAnim.value, child: child),
-        child: Container(
-          width: 72,
-          height: 72,
-          decoration: BoxDecoration(
-            color: AppTheme.primaryRed,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.primaryRed.withOpacity(0.5),
-                blurRadius: 20,
-                spreadRadius: 4,
-              ),
-            ],
-          ),
-          child: const Icon(Icons.stop_rounded, color: Colors.white, size: 36),
         ),
       ),
     );

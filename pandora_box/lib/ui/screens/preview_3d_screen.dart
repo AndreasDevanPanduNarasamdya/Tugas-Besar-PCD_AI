@@ -24,9 +24,14 @@ class Preview3DScreen extends StatefulWidget {
 }
 
 class _Preview3DScreenState extends State<Preview3DScreen> {
-  _ViewMode _viewMode = _ViewMode.render;
+  _ViewMode _viewMode = _ViewMode.material;
   _MapMode _mapMode = _MapMode.base;
   _DisplayMode _displayMode = _DisplayMode.viewport;
+
+  // Which rows are expanded
+  bool _row0Expanded = true;
+  bool _row1Expanded = true;
+  bool _row2Expanded = true;
 
   @override
   Widget build(BuildContext context) {
@@ -34,30 +39,57 @@ class _Preview3DScreenState extends State<Preview3DScreen> {
       builder: (context, state) {
         return Scaffold(
           backgroundColor: AppTheme.darkBackground,
-          extendBodyBehindAppBar: true, // Let 3D model go behind app bar
+          extendBodyBehindAppBar: true,
           appBar: AppBar(
             backgroundColor: Colors.transparent,
             elevation: 0,
+            centerTitle:
+                true, // <--- Forces true center between leading and actions
             leading: IconButton(
               icon: const Icon(Icons.chevron_left,
                   color: AppTheme.primaryRed, size: 30),
               onPressed: () => Navigator.pop(context),
             ),
-            title: const Text('Scan Result',
-                style: TextStyle(
-                    shadows: [Shadow(blurRadius: 4, color: Colors.black)])),
+            title: const Text(
+              'Scan Result',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+              ),
+            ),
             actions: [
+              // Stats box top-right
               Padding(
-                padding: const EdgeInsets.only(right: 16),
+                padding: const EdgeInsets.only(right: 12, top: 8, bottom: 8),
                 child: Container(
-                  width: 32,
-                  height: 32,
-                  decoration: const BoxDecoration(
-                    color: AppTheme.primaryRed,
-                    shape: BoxShape.circle,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 2), // Reduced padding
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.55),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppTheme.primaryRed, width: 1.2),
                   ),
-                  child: const Icon(Icons.view_in_ar,
-                      color: Colors.white, size: 18),
+                  // FittedBox forces the content to shrink instead of overflowing
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _statRow(
+                            Icons.change_history,
+                            '${state.mesh?.faceCount ?? 0} Faces',
+                            '${state.mesh?.vertexCount ?? 0} Vertices'),
+                        const SizedBox(height: 2),
+                        _statRow(
+                            Icons.change_history,
+                            '${state.mesh?.edgeCount ?? 0} Edges',
+                            '${state.mesh?.triangleCount ?? 0} Triangles'),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -65,127 +97,95 @@ class _Preview3DScreenState extends State<Preview3DScreen> {
           body: Stack(
             fit: StackFit.expand,
             children: [
-              // ── Layer 1: Full Screen 3D Viewer ───────────────────────────
-              Container(
-                color: const Color(0xFFD0D0D0), // Light grey bg like mockup
-                child: _build3DContent(state),
-              ),
+              // ── Full screen 3D viewport ─────────────────────────────────
+              _build3DContent(state),
 
-              // ── Layer 2: Floating UI Controls ────────────────────────────
+              // ── Left toggle column + expandable rows ────────────────────
               SafeArea(
-                child: Column(
-                  children: [
-                    // Stats Bar
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: AppTheme.darkBackground.withOpacity(0.85),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                              color: AppTheme.primaryRed.withOpacity(0.5)),
-                        ),
-                        child: ModelStatsBar(
-                          faces: state.mesh?.faceCount ?? 0,
-                          vertices: state.mesh?.vertexCount ?? 0,
-                          edges: state.mesh?.edgeCount ?? 0,
-                          triangles: state.mesh?.triangleCount ?? 0,
-                        ),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 56, left: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(height: 8),
+                      _ToggleRow(
+                        icon: Icons.view_in_ar,
+                        expanded: _row0Expanded,
+                        onIconTap: () =>
+                            setState(() => _row0Expanded = !_row0Expanded),
+                        children: [
+                          _pill(
+                              'Wireframe',
+                              _viewMode == _ViewMode.wireframe,
+                              () => setState(
+                                  () => _viewMode = _ViewMode.wireframe)),
+                          _pill(
+                              'Solid',
+                              _viewMode == _ViewMode.solid,
+                              () =>
+                                  setState(() => _viewMode = _ViewMode.solid)),
+                          _pill(
+                              'Material',
+                              _viewMode == _ViewMode.material,
+                              () => setState(
+                                  () => _viewMode = _ViewMode.material)),
+                          _pill(
+                              'Render',
+                              _viewMode == _ViewMode.render,
+                              () =>
+                                  setState(() => _viewMode = _ViewMode.render)),
+                        ],
                       ),
-                    ),
-
-                    // Toggles
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _toggle(
-                                    'Wireframe',
-                                    _viewMode == _ViewMode.wireframe,
-                                    () => setState(
-                                        () => _viewMode = _ViewMode.wireframe)),
-                                const SizedBox(width: 6),
-                                _toggle(
-                                    'Solid',
-                                    _viewMode == _ViewMode.solid,
-                                    () => setState(
-                                        () => _viewMode = _ViewMode.solid)),
-                                const SizedBox(width: 6),
-                                _toggle(
-                                    'Material',
-                                    _viewMode == _ViewMode.material,
-                                    () => setState(
-                                        () => _viewMode = _ViewMode.material)),
-                                const SizedBox(width: 6),
-                                _toggle(
-                                    'Render',
-                                    _viewMode == _ViewMode.render,
-                                    () => setState(
-                                        () => _viewMode = _ViewMode.render)),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _toggle(
-                                    'Base',
-                                    _mapMode == _MapMode.base,
-                                    () => setState(
-                                        () => _mapMode = _MapMode.base)),
-                                const SizedBox(width: 6),
-                                _toggle(
-                                    'Normal',
-                                    _mapMode == _MapMode.normal,
-                                    () => setState(
-                                        () => _mapMode = _MapMode.normal)),
-                                const SizedBox(width: 6),
-                                _toggle(
-                                    'Combined',
-                                    _mapMode == _MapMode.combined,
-                                    () => setState(
-                                        () => _mapMode = _MapMode.combined)),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _toggle(
-                                    'ViewPort',
-                                    _displayMode == _DisplayMode.viewport,
-                                    () => setState(() =>
-                                        _displayMode = _DisplayMode.viewport)),
-                                const SizedBox(width: 6),
-                                _toggle('Texture',
-                                    _displayMode == _DisplayMode.texture, () {
-                                  setState(() =>
-                                      _displayMode = _DisplayMode.texture);
-                                  Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                          builder: (_) =>
-                                              const TexturePreviewScreen()));
-                                }),
-                              ],
-                            ),
-                          ],
-                        ),
+                      const SizedBox(height: 8),
+                      _ToggleRow(
+                        icon: Icons.grid_4x4,
+                        expanded: _row1Expanded,
+                        onIconTap: () =>
+                            setState(() => _row1Expanded = !_row1Expanded),
+                        children: [
+                          _pill('Base', _mapMode == _MapMode.base,
+                              () => setState(() => _mapMode = _MapMode.base)),
+                          _pill('Normal', _mapMode == _MapMode.normal,
+                              () => setState(() => _mapMode = _MapMode.normal)),
+                          _pill(
+                              'Combined',
+                              _mapMode == _MapMode.combined,
+                              () =>
+                                  setState(() => _mapMode = _MapMode.combined)),
+                        ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 8),
+                      _ToggleRow(
+                        icon: Icons.remove_red_eye_outlined,
+                        expanded: _row2Expanded,
+                        onIconTap: () =>
+                            setState(() => _row2Expanded = !_row2Expanded),
+                        children: [
+                          _pill(
+                              'ViewPort',
+                              _displayMode == _DisplayMode.viewport,
+                              () => setState(
+                                  () => _displayMode = _DisplayMode.viewport)),
+                          _pill('Texture', _displayMode == _DisplayMode.texture,
+                              () {
+                            setState(() => _displayMode = _DisplayMode.texture);
+                            Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        const TexturePreviewScreen()));
+                          }),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
 
-              // ── Layer 3: Bottom Action Buttons ───────────────────────────
+              // ── Bottom buttons ──────────────────────────────────────────
               Positioned(
-                bottom: 16,
+                bottom: 24,
                 left: 16,
                 right: 16,
                 child: Row(
@@ -198,16 +198,16 @@ class _Preview3DScreenState extends State<Preview3DScreen> {
                               .add(const ScanRescanRequested());
                           Navigator.pop(context);
                         },
-                        icon: const Icon(Icons.refresh,
+                        icon: const Icon(Icons.crop_free,
                             color: Colors.white, size: 18),
                         label: const Text('Re-Scan',
                             style: TextStyle(color: Colors.white)),
                         style: OutlinedButton.styleFrom(
-                          backgroundColor: Colors.black.withOpacity(0.6),
-                          side: const BorderSide(color: Colors.white54),
-                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          backgroundColor: Colors.black.withOpacity(0.65),
+                          side: const BorderSide(color: Colors.white38),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(25)),
+                              borderRadius: BorderRadius.circular(30)),
                         ),
                       ),
                     ),
@@ -228,9 +228,11 @@ class _Preview3DScreenState extends State<Preview3DScreen> {
                             : const Icon(Icons.download, size: 18),
                         label: const Text('Save'),
                         style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          backgroundColor: AppTheme.primaryRed,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(25)),
+                              borderRadius: BorderRadius.circular(30)),
                         ),
                       ),
                     ),
@@ -239,9 +241,49 @@ class _Preview3DScreenState extends State<Preview3DScreen> {
               ),
             ],
           ),
-          bottomNavigationBar: _buildBottomNav(context, state),
         );
       },
+    );
+  }
+
+  Widget _statRow(IconData icon, String left, String right) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: AppTheme.primaryRed, size: 11),
+        const SizedBox(width: 3),
+        Text(left, style: const TextStyle(color: Colors.white, fontSize: 10)),
+        const SizedBox(width: 8),
+        Icon(icon, color: AppTheme.primaryRed, size: 11),
+        const SizedBox(width: 3),
+        Text(right, style: const TextStyle(color: Colors.white, fontSize: 10)),
+      ],
+    );
+  }
+
+  Widget _pill(String label, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+        decoration: BoxDecoration(
+          color: active ? AppTheme.primaryRed : Colors.black.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: active ? AppTheme.primaryRed : const Color(0xFF444444),
+            width: 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: active ? Colors.white : AppTheme.textGrey,
+            fontSize: 11,
+            fontWeight: active ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      ),
     );
   }
 
@@ -263,9 +305,12 @@ class _Preview3DScreenState extends State<Preview3DScreen> {
     }
 
     if (!state.hasMesh || state.mesh == null || state.mesh!.vertexCount == 0) {
-      return const Center(
-        child: Text('Waiting for mesh generation...',
-            style: TextStyle(color: Colors.grey)),
+      return Container(
+        color: const Color(0xFFCCCCCC),
+        child: const Center(
+          child: Text('Waiting for mesh generation...',
+              style: TextStyle(color: Colors.grey)),
+        ),
       );
     }
 
@@ -277,94 +322,74 @@ class _Preview3DScreenState extends State<Preview3DScreen> {
       normalMapBytes: state.normalMapBytes,
     );
   }
+}
 
-  Widget _buildBottomNav(BuildContext context, ScanState state) {
-    return Container(
-      height: 72,
-      decoration: const BoxDecoration(
-        color: AppTheme.bottomNavBg,
-        border: Border(top: BorderSide(color: AppTheme.cardBorder, width: 0.5)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              Icon(Icons.home, color: AppTheme.textGrey, size: 24),
-              Text('Home',
-                  style: TextStyle(color: AppTheme.textGrey, fontSize: 10)),
-            ],
-          ),
-          GestureDetector(
-            onTap: () {
-              if (state.hasMesh) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const ModelMenuScreen(
-                          scanId: 'current', scanName: 'New Scan')),
-                );
-              }
-            },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: AppTheme.primaryRed, width: 1.5),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.crop_free,
-                      color: AppTheme.primaryRed, size: 22),
-                ),
-                const Text('Scan Object',
-                    style: TextStyle(color: AppTheme.primaryRed, fontSize: 10)),
-              ],
+// ── Animated toggle row ──────────────────────────────────────────────────────
+class _ToggleRow extends StatelessWidget {
+  final IconData icon;
+  final bool expanded;
+  final VoidCallback onIconTap;
+  final List<Widget> children;
+
+  const _ToggleRow({
+    required this.icon,
+    required this.expanded,
+    required this.onIconTap,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // Left icon toggle button
+        GestureDetector(
+          onTap: onIconTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: expanded
+                  ? AppTheme.primaryRed
+                  : Colors.black.withOpacity(0.65),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: expanded ? AppTheme.primaryRed : const Color(0xFF444444),
+                width: 1,
+              ),
             ),
+            child: Icon(icon, color: Colors.white, size: 18),
           ),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              Icon(Icons.settings, color: AppTheme.textGrey, size: 24),
-              Text('Settings',
-                  style: TextStyle(color: AppTheme.textGrey, fontSize: 10)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+        ),
 
-  Widget _toggle(String label, bool active, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-        decoration: BoxDecoration(
-          color: active ? AppTheme.primaryRed : Colors.black.withOpacity(0.6),
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(
-            color: active ? AppTheme.primaryRed : const Color(0xFF333333),
+        // Animated expanding pill buttons
+        ClipRect(
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeInOut,
+            child: expanded
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(width: 6),
+                      ...children
+                          .expand((w) => [w, const SizedBox(width: 5)])
+                          .toList()
+                        ..removeLast(),
+                    ],
+                  )
+                : const SizedBox(width: 0, height: 36),
           ),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: active ? Colors.white : AppTheme.textGrey,
-            fontSize: 11,
-            fontWeight: active ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-      ),
+      ],
     );
   }
 }
 
 // ── Native 3D Point Cloud Renderer ──────────────────────────────────────────
-
 class _NativePointCloudViewer extends StatefulWidget {
   final MeshData mesh;
   final _ViewMode viewMode;
@@ -395,19 +420,14 @@ class _NativePointCloudViewerState extends State<_NativePointCloudViewer> {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onScaleStart: (details) {
-        _baseZoom = _zoom;
-      },
+      onScaleStart: (_) => _baseZoom = _zoom,
       onScaleUpdate: (details) {
         setState(() {
-          // Scale handles both pinch zoom AND single finger pan
           if (details.pointerCount == 1) {
-            // Single finger — rotate
             _yaw -= details.focalPointDelta.dx * 0.01;
             _pitch += details.focalPointDelta.dy * 0.01;
             _pitch = _pitch.clamp(-math.pi / 2, math.pi / 2);
           } else {
-            // Two fingers — zoom
             _zoom = (_baseZoom * details.scale).clamp(0.1, 10.0);
           }
         });
@@ -443,11 +463,9 @@ class _MeshPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
     final cy = size.height / 2;
-
     final cosP = math.cos(pitch), sinP = math.sin(pitch);
     final cosY = math.cos(yaw), sinY = math.sin(yaw);
 
-    // Project all vertices to 2D
     final projected = <Offset>[];
     final depths = <double>[];
     final vertCount = mesh.vertices.length ~/ 3;
@@ -456,14 +474,10 @@ class _MeshPainter extends CustomPainter {
       final x = mesh.vertices[i * 3];
       final y = mesh.vertices[i * 3 + 1];
       final z = mesh.vertices[i * 3 + 2];
-
-      // Rotate Y axis
       final x1 = x * cosY - z * sinY;
       final z1 = x * sinY + z * cosY;
-      // Rotate X axis
       final y2 = y * cosP - z1 * sinP;
       final z2 = y * sinP + z1 * cosP;
-
       projected.add(Offset(cx + x1 * 300 * zoom, cy + y2 * 300 * zoom));
       depths.add(z2);
     }
@@ -489,20 +503,7 @@ class _MeshPainter extends CustomPainter {
       ..strokeWidth = 0.5
       ..style = PaintingStyle.stroke;
 
-    // Sort faces by average depth
-    final faces = <_Face>[];
-    for (int i = 0; i < mesh.indices.length; i += 3) {
-      final a = mesh.indices[i];
-      final b = mesh.indices[i + 1];
-      final c = mesh.indices[i + 2];
-      if (a >= projected.length ||
-          b >= projected.length ||
-          c >= projected.length) continue;
-      final avgZ = (depths[a] + depths[b] + depths[c]) / 3;
-      faces.add(_Face(a, b, c, avgZ));
-    }
-    faces.sort((x, y) => y.avgZ.compareTo(x.avgZ));
-
+    final faces = _sortedFaces(projected, depths);
     for (final f in faces) {
       final path = Path()
         ..moveTo(projected[f.a].dx, projected[f.a].dy)
@@ -514,45 +515,27 @@ class _MeshPainter extends CustomPainter {
   }
 
   void _drawSolid(Canvas canvas, List<Offset> projected, List<double> depths) {
-    final faces = <_Face>[];
-    for (int i = 0; i < mesh.indices.length; i += 3) {
-      final a = mesh.indices[i];
-      final b = mesh.indices[i + 1];
-      final c = mesh.indices[i + 2];
-      if (a >= projected.length ||
-          b >= projected.length ||
-          c >= projected.length) continue;
-      final avgZ = (depths[a] + depths[b] + depths[c]) / 3;
-      faces.add(_Face(a, b, c, avgZ));
-    }
-    faces.sort((x, y) => y.avgZ.compareTo(x.avgZ));
-
-    final fillPaint = Paint()
-      ..color = const Color(0xFF888888)
-      ..style = PaintingStyle.fill;
+    final faces = _sortedFaces(projected, depths);
+    final fillPaint = Paint()..style = PaintingStyle.fill;
     final wirePaint = Paint()
       ..color = Colors.black26
       ..strokeWidth = 0.3
       ..style = PaintingStyle.stroke;
 
     for (final f in faces) {
-      // Simple lambertian shading from normal
       double shade = 0.7;
       if (f.a * 3 + 2 < mesh.normals.length) {
         final nx = mesh.normals[f.a * 3];
         final ny = mesh.normals[f.a * 3 + 1];
         final nz = mesh.normals[f.a * 3 + 2];
-        // Light from top-right-front
         shade = (nx * 0.3 + ny * 0.5 + nz * 0.2).clamp(0.2, 1.0);
       }
       final grey = (shade * 200).toInt().clamp(0, 255);
-
       final path = Path()
         ..moveTo(projected[f.a].dx, projected[f.a].dy)
         ..lineTo(projected[f.b].dx, projected[f.b].dy)
         ..lineTo(projected[f.c].dx, projected[f.c].dy)
         ..close();
-
       fillPaint.color = Color.fromARGB(255, grey, grey, grey);
       canvas.drawPath(path, fillPaint);
       canvas.drawPath(path, wirePaint);
@@ -562,11 +545,9 @@ class _MeshPainter extends CustomPainter {
   void _drawColored(
       Canvas canvas, List<Offset> projected, List<double> depths) {
     if (mesh.indices.isEmpty) {
-      // Fallback — draw point cloud
       final paint = Paint()
         ..strokeWidth = 2.0
         ..strokeCap = StrokeCap.round;
-
       final points = <_ProjectedPoint>[];
       for (int i = 0; i < projected.length; i++) {
         points.add(_ProjectedPoint(
@@ -587,24 +568,10 @@ class _MeshPainter extends CustomPainter {
       return;
     }
 
-    // Draw colored triangles
-    final faces = <_Face>[];
-    for (int i = 0; i < mesh.indices.length; i += 3) {
-      final a = mesh.indices[i];
-      final b = mesh.indices[i + 1];
-      final c = mesh.indices[i + 2];
-      if (a >= projected.length ||
-          b >= projected.length ||
-          c >= projected.length) continue;
-      final avgZ = (depths[a] + depths[b] + depths[c]) / 3;
-      faces.add(_Face(a, b, c, avgZ));
-    }
-    faces.sort((x, y) => y.avgZ.compareTo(x.avgZ));
-
+    final faces = _sortedFaces(projected, depths);
     final paint = Paint()..style = PaintingStyle.fill;
 
     for (final f in faces) {
-      // Average vertex colors
       final r = ((mesh.colors[f.a * 3] +
                   mesh.colors[f.b * 3] +
                   mesh.colors[f.c * 3]) /
@@ -627,7 +594,6 @@ class _MeshPainter extends CustomPainter {
           .toInt()
           .clamp(0, 255);
 
-      // Lambertian shading
       double shade = 0.8;
       if (f.a * 3 + 2 < mesh.normals.length) {
         final nx = mesh.normals[f.a * 3];
@@ -652,6 +618,21 @@ class _MeshPainter extends CustomPainter {
     }
   }
 
+  List<_Face> _sortedFaces(List<Offset> projected, List<double> depths) {
+    final faces = <_Face>[];
+    for (int i = 0; i < mesh.indices.length; i += 3) {
+      final a = mesh.indices[i];
+      final b = mesh.indices[i + 1];
+      final c = mesh.indices[i + 2];
+      if (a >= projected.length ||
+          b >= projected.length ||
+          c >= projected.length) continue;
+      faces.add(_Face(a, b, c, (depths[a] + depths[b] + depths[c]) / 3));
+    }
+    faces.sort((x, y) => y.avgZ.compareTo(x.avgZ));
+    return faces;
+  }
+
   @override
   bool shouldRepaint(covariant _MeshPainter old) =>
       old.pitch != pitch ||
@@ -669,12 +650,11 @@ class _Face {
 class _ProjectedPoint {
   final double x, y, z;
   final int r, g, b;
-  _ProjectedPoint({
-    required this.x,
-    required this.y,
-    required this.z,
-    required this.r,
-    required this.g,
-    required this.b,
-  });
+  _ProjectedPoint(
+      {required this.x,
+      required this.y,
+      required this.z,
+      required this.r,
+      required this.g,
+      required this.b});
 }

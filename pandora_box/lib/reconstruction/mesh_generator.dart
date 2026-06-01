@@ -1,7 +1,8 @@
-import 'dart:math';
 import 'dart:typed_data';
+import 'dart:math' as math;
 import 'package:vector_math/vector_math.dart';
-import 'point_cloud_builder.dart';
+
+import '../processing/space_carver.dart'; // <-- THIS IS THE ONLY FIX!
 
 class MeshData {
   final Float32List vertices;
@@ -25,7 +26,7 @@ class MeshData {
 }
 
 class MeshGenerator {
-  MeshData generate(List<PointCloudPoint> points) {
+  MeshData generate(List<PointCloudPoint> points, int tRes, int pRes) {
     if (points.isEmpty) {
       return MeshData(
         vertices: Float32List(0),
@@ -36,200 +37,174 @@ class MeshGenerator {
       );
     }
 
-    final bbox = _computeBoundingBox(points);
-    final uvs = _generateUVs(points, bbox);
+    // 1. Center of Mass
+    Vector3 center = Vector3.zero();
+    for (final p in points) center += p.position;
+    center.scale(1.0 / points.length);
 
-    final vertices = Float32List(points.length * 3);
-    final normals = Float32List(points.length * 3);
-    final colors = Float32List(points.length * 3);
+    // 2. Setup 2D Spherical Grids
+    List<List<double>> radii =
+        List.generate(tRes, (_) => List.filled(pRes, 0.0));
+    List<List<Vector3>> colors =
+        List.generate(tRes, (_) => List.filled(pRes, Vector3.zero()));
+    List<List<int>> counts = List.generate(tRes, (_) => List.filled(pRes, 0));
 
-    for (int i = 0; i < points.length; i++) {
-      final p = points[i];
-      vertices[i * 3 + 0] = p.position.x;
-      vertices[i * 3 + 1] = p.position.y;
-      vertices[i * 3 + 2] = p.position.z;
-      normals[i * 3 + 0] = p.normal.x;
-      normals[i * 3 + 1] = p.normal.y;
-      normals[i * 3 + 2] = p.normal.z;
-      colors[i * 3 + 0] = p.color.x;
-      colors[i * 3 + 1] = p.color.y;
-      colors[i * 3 + 2] = p.color.z;
-    }
-
-    final indices = _generateTriangles(points, bbox);
-    final cleanIndices = _removeDegenerateFaces(indices, vertices);
-
-    return MeshData(
-      vertices: vertices,
-      indices: cleanIndices,
-      normals: normals,
-      uvs: uvs,
-      colors: colors,
-    );
-  }
-
-  _BoundingBox _computeBoundingBox(List<PointCloudPoint> points) {
-    double minX = double.infinity, maxX = double.negativeInfinity;
-    double minY = double.infinity, maxY = double.negativeInfinity;
-    double minZ = double.infinity, maxZ = double.negativeInfinity;
-
+    // 3. Map Point Cloud to Grid
     for (final p in points) {
-      if (p.position.x < minX) minX = p.position.x;
-      if (p.position.x > maxX) maxX = p.position.x;
-      if (p.position.y < minY) minY = p.position.y;
-      if (p.position.y > maxY) maxY = p.position.y;
-      if (p.position.z < minZ) minZ = p.position.z;
-      if (p.position.z > maxZ) maxZ = p.position.z;
+      Vector3 dir = p.position - center;
+      double r = dir.length;
+      if (r == 0) continue;
+
+      double theta = math.atan2(dir.z, dir.x);
+      if (theta < 0) theta += 2 * math.pi;
+
+      // Calculate phi (0 to pi)
+      double phi = math.acos((dir.y / r).clamp(-1.0, 1.0));
+
+      int t = ((theta / (2 * math.pi)) * tRes).floor().clamp(0, tRes - 1);
+      int ph = ((phi / math.pi) * pRes).floor().clamp(0, pRes - 1);
+
+      radii[t][ph] = math.max(radii[t][ph], r); // Keep outermost boundary
+      colors[t][ph] += p.color;
+      counts[t][ph]++;
     }
 
-    return _BoundingBox(minX, maxX, minY, maxY, minZ, maxZ);
-  }
-
-  Float32List _generateUVs(List<PointCloudPoint> points, _BoundingBox bbox) {
-    final uvs = Float32List(points.length * 2);
-    final width = bbox.maxX - bbox.minX;
-    final depth = bbox.maxZ - bbox.minZ;
-    final height = bbox.maxY - bbox.minY;
-
-    final isCylindrical = height > 0 &&
-        width > 0 &&
-        height > (width * 1.5) &&
-        (width - depth).abs() < width * 0.3;
-
-    for (int i = 0; i < points.length; i++) {
-      final p = points[i].position;
-      double u, v;
-
-      if (isCylindrical) {
-        final cx = (bbox.minX + bbox.maxX) / 2;
-        final cz = (bbox.minZ + bbox.maxZ) / 2;
-        u = (atan2(p.z - cz, p.x - cx) / (2 * pi) + 0.5);
-        v = height > 0 ? (p.y - bbox.minY) / height : 0.0;
-      } else {
-        final normal = points[i].normal;
-        final ax = normal.x.abs();
-        final ay = normal.y.abs();
-        final az = normal.z.abs();
-
-        if (ay >= ax && ay >= az) {
-          u = width > 0 ? (p.x - bbox.minX) / width : 0.0;
-          v = depth > 0 ? (p.z - bbox.minZ) / depth : 0.0;
-        } else if (ax >= ay && ax >= az) {
-          u = depth > 0 ? (p.z - bbox.minZ) / depth : 0.0;
-          v = height > 0 ? (p.y - bbox.minY) / height : 0.0;
-        } else {
-          u = width > 0 ? (p.x - bbox.minX) / width : 0.0;
-          v = height > 0 ? (p.y - bbox.minY) / height : 0.0;
+    // Average colors in populated cells
+    for (int t = 0; t < tRes; t++) {
+      for (int p = 0; p < pRes; p++) {
+        if (counts[t][p] > 0) {
+          colors[t][p].scale(1.0 / counts[t][p]);
         }
       }
-
-      uvs[i * 2 + 0] = u.clamp(0.0, 1.0);
-      uvs[i * 2 + 1] = v.clamp(0.0, 1.0);
     }
 
-    return uvs;
-  }
+    // 4. THE FIX: Dilation Gap-Fill Algorithm
+    // This bleeds the radius outward to fill any empty null cells
+    // ensuring a 100% watertight mesh.
+    bool hasZeros = true;
+    int safety = 0;
+    while (hasZeros && safety < 100) {
+      hasZeros = false;
+      safety++;
 
-  Uint32List _generateTriangles(
-      List<PointCloudPoint> points, _BoundingBox bbox) {
-    final List<int> indices = [];
-    final int n = points.length;
-    const int gridSize = 10; // was 20 — faster
-    final Map<int, List<int>> grid = {};
+      List<List<double>> newRadii =
+          List.generate(tRes, (t) => List.from(radii[t]));
+      List<List<Vector3>> newColors =
+          List.generate(tRes, (t) => List.from(colors[t]));
 
-    final rangeX = bbox.maxX - bbox.minX;
-    final rangeY = bbox.maxY - bbox.minY;
-    final rangeZ = bbox.maxZ - bbox.minZ;
+      for (int t = 0; t < tRes; t++) {
+        for (int p = 0; p < pRes; p++) {
+          if (radii[t][p] == 0.0) {
+            double sumR = 0;
+            Vector3 sumC = Vector3.zero();
+            int n = 0;
 
-    if (rangeX == 0 || rangeY == 0) return Uint32List(0);
+            // Check Left
+            int tL = (t - 1) % tRes;
+            if (tL < 0) tL += tRes;
+            if (radii[tL][p] > 0) {
+              sumR += radii[tL][p];
+              sumC += colors[tL][p];
+              n++;
+            }
 
-    for (int i = 0; i < n; i++) {
-      final p = points[i].position;
-      final gx = ((p.x - bbox.minX) / rangeX * (gridSize - 1))
-          .round()
-          .clamp(0, gridSize - 1);
-      final gy = ((p.y - bbox.minY) / rangeY * (gridSize - 1))
-          .round()
-          .clamp(0, gridSize - 1);
-      final key = gy * gridSize + gx;
-      grid.putIfAbsent(key, () => []).add(i);
-    }
+            // Check Right
+            int tR = (t + 1) % tRes;
+            if (radii[tR][p] > 0) {
+              sumR += radii[tR][p];
+              sumC += colors[tR][p];
+              n++;
+            }
 
-    final double maxEdgeLen = (rangeX + rangeY + rangeZ) / (gridSize * 1.5);
+            // Check Up
+            if (p > 0 && radii[t][p - 1] > 0) {
+              sumR += radii[t][p - 1];
+              sumC += colors[t][p - 1];
+              n++;
+            }
 
-    for (int i = 0; i < n; i++) {
-      final p = points[i].position;
-      final gx = ((p.x - bbox.minX) / rangeX * (gridSize - 1))
-          .round()
-          .clamp(0, gridSize - 1);
-      final gy = ((p.y - bbox.minY) / rangeY * (gridSize - 1))
-          .round()
-          .clamp(0, gridSize - 1);
+            // Check Down
+            if (p < pRes - 1 && radii[t][p + 1] > 0) {
+              sumR += radii[t][p + 1];
+              sumC += colors[t][p + 1];
+              n++;
+            }
 
-      for (int dy = 0; dy <= 1; dy++) {
-        for (int dx = 0; dx <= 1; dx++) {
-          final nx = gx + dx;
-          final ny = gy + dy;
-          if (nx >= gridSize || ny >= gridSize) continue;
-
-          final key = ny * gridSize + nx;
-          final neighbors = grid[key];
-          if (neighbors == null || neighbors.length < 2) continue;
-
-          for (int a = 0; a < neighbors.length - 1; a++) {
-            final j = neighbors[a];
-            final k = neighbors[a + 1];
-            if (j == i || k == i) continue;
-
-            final dij = (points[i].position - points[j].position).length;
-            final djk = (points[j].position - points[k].position).length;
-            final dik = (points[i].position - points[k].position).length;
-
-            if (dij > maxEdgeLen || djk > maxEdgeLen || dik > maxEdgeLen)
-              continue;
-
-            indices.addAll([i, j, k]);
+            if (n > 0) {
+              newRadii[t][p] = sumR / n;
+              newColors[t][p] = sumC / n.toDouble();
+            } else {
+              hasZeros = true;
+            }
           }
         }
       }
+      radii = newRadii;
+      colors = newColors;
     }
 
-    return Uint32List.fromList(indices);
-  }
+    // 5. Generate Final Watertight Vertices
+    int vCount = tRes * pRes;
+    Float32List outVertices = Float32List(vCount * 3);
+    Float32List outColors = Float32List(vCount * 3);
+    Float32List outNormals = Float32List(vCount * 3);
+    Float32List uvs = Float32List(vCount * 2);
 
-  Uint32List _removeDegenerateFaces(Uint32List indices, Float32List vertices) {
-    final List<int> clean = [];
+    int vIdx = 0;
+    for (int t = 0; t < tRes; t++) {
+      double theta = (t / tRes) * 2 * math.pi;
+      for (int p = 0; p < pRes; p++) {
+        double phi = (p / (pRes - 1)) * math.pi;
 
-    for (int i = 0; i < indices.length; i += 3) {
-      final a = indices[i];
-      final b = indices[i + 1];
-      final c = indices[i + 2];
+        double r = radii[t][p];
 
-      if (a == b || b == c || a == c) continue;
+        // Spherical to Cartesian normal
+        double nx = math.sin(phi) * math.cos(theta);
+        double ny = math.cos(phi);
+        double nz = math.sin(phi) * math.sin(theta);
 
-      if (a * 3 + 2 >= vertices.length ||
-          b * 3 + 2 >= vertices.length ||
-          c * 3 + 2 >= vertices.length) continue;
+        Vector3 normal = Vector3(nx, ny, nz);
+        Vector3 pos = center + (normal * r);
 
-      final va =
-          Vector3(vertices[a * 3], vertices[a * 3 + 1], vertices[a * 3 + 2]);
-      final vb =
-          Vector3(vertices[b * 3], vertices[b * 3 + 1], vertices[b * 3 + 2]);
-      final vc =
-          Vector3(vertices[c * 3], vertices[c * 3 + 1], vertices[c * 3 + 2]);
+        outVertices[vIdx * 3] = pos.x;
+        outVertices[vIdx * 3 + 1] = pos.y;
+        outVertices[vIdx * 3 + 2] = pos.z;
 
-      final area = (vb - va).cross(vc - va).length / 2;
-      if (area < 1e-8) continue;
+        outNormals[vIdx * 3] = nx;
+        outNormals[vIdx * 3 + 1] = ny;
+        outNormals[vIdx * 3 + 2] = nz;
 
-      clean.addAll([a, b, c]);
+        outColors[vIdx * 3] = colors[t][p].x;
+        outColors[vIdx * 3 + 1] = colors[t][p].y;
+        outColors[vIdx * 3 + 2] = colors[t][p].z;
+
+        uvs[vIdx * 2] = t / tRes;
+        uvs[vIdx * 2 + 1] = p / (pRes - 1);
+
+        vIdx++;
+      }
     }
 
-    return Uint32List.fromList(clean);
-  }
-}
+    // 6. Generate Indices
+    List<int> indices = [];
+    for (int t = 0; t < tRes; t++) {
+      int tNext = (t + 1) % tRes;
+      for (int p = 0; p < pRes - 1; p++) {
+        int i00 = t * pRes + p;
+        int i10 = tNext * pRes + p;
+        int i01 = t * pRes + (p + 1);
+        int i11 = tNext * pRes + (p + 1);
 
-class _BoundingBox {
-  final double minX, maxX, minY, maxY, minZ, maxZ;
-  _BoundingBox(
-      this.minX, this.maxX, this.minY, this.maxY, this.minZ, this.maxZ);
+        indices.addAll([i00, i10, i01]);
+        indices.addAll([i10, i11, i01]);
+      }
+    }
+
+    return MeshData(
+        vertices: outVertices,
+        indices: Uint32List.fromList(indices),
+        normals: outNormals,
+        uvs: uvs,
+        colors: outColors);
+  }
 }

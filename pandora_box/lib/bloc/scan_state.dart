@@ -10,10 +10,9 @@ enum ScanStatus {
   error,
 }
 
-/// Label shown in the processing overlay on ScanScreen.
-/// Each value maps to one stage in _onMeshGenerationRequested.
 enum ProcessingStep {
   idle,
+  aligningPointClouds,
   generatingMesh,
   mappingTextures,
   sharpeningAndEncoding,
@@ -25,6 +24,8 @@ extension ProcessingStepX on ProcessingStep {
     switch (this) {
       case ProcessingStep.idle:
         return '';
+      case ProcessingStep.aligningPointClouds:
+        return 'Aligning angles...';
       case ProcessingStep.generatingMesh:
         return 'Generating mesh...';
       case ProcessingStep.mappingTextures:
@@ -39,10 +40,10 @@ extension ProcessingStepX on ProcessingStep {
 
 class ScanState {
   final ScanStatus status;
-  final double coveragePercent;
-  final int pointCount;
-  final int frameCount;
-  final double processingProgress; // 0.0 → 1.0
+  final int capturedCount; // 0–4
+  final bool isCapturingFrame;
+  final int pointCount; // live point cloud size shown in UI
+  final double processingProgress;
   final ProcessingStep processingStep;
   final MeshData? mesh;
   final Uint8List? baseMapBytes;
@@ -53,9 +54,9 @@ class ScanState {
 
   const ScanState({
     this.status = ScanStatus.idle,
-    this.coveragePercent = 0.0,
+    this.capturedCount = 0,
+    this.isCapturingFrame = false,
     this.pointCount = 0,
-    this.frameCount = 0,
     this.processingProgress = 0.0,
     this.processingStep = ProcessingStep.idle,
     this.mesh,
@@ -73,9 +74,9 @@ class ScanState {
 
   ScanState copyWith({
     ScanStatus? status,
-    double? coveragePercent,
+    int? capturedCount,
+    bool? isCapturingFrame,
     int? pointCount,
-    int? frameCount,
     double? processingProgress,
     ProcessingStep? processingStep,
     MeshData? mesh,
@@ -87,9 +88,9 @@ class ScanState {
   }) {
     return ScanState(
       status: status ?? this.status,
-      coveragePercent: coveragePercent ?? this.coveragePercent,
+      capturedCount: capturedCount ?? this.capturedCount,
+      isCapturingFrame: isCapturingFrame ?? this.isCapturingFrame,
       pointCount: pointCount ?? this.pointCount,
-      frameCount: frameCount ?? this.frameCount,
       processingProgress: processingProgress ?? this.processingProgress,
       processingStep: processingStep ?? this.processingStep,
       mesh: mesh ?? this.mesh,

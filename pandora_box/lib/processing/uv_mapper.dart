@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'dart:math';
 import 'package:vector_math/vector_math.dart';
-import '../reconstruction/point_cloud_builder.dart';
+import '../processing/space_carver.dart';
 
 class UVMapper {
   /// Auto-detect mapping type and generate UVs

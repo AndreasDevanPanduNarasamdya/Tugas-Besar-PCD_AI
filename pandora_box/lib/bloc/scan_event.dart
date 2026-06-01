@@ -8,13 +8,8 @@ class ScanStarted extends ScanEvent {
   const ScanStarted();
 }
 
-class ScanStopped extends ScanEvent {
-  const ScanStopped();
-}
-
-class ScanFrameReceived extends ScanEvent {
-  final CameraImage cameraImage;
-  const ScanFrameReceived({required this.cameraImage});
+class ScanPhotoCaptured extends ScanEvent {
+  const ScanPhotoCaptured();
 }
 
 class ScanMeshGenerationRequested extends ScanEvent {
@@ -33,13 +28,4 @@ class ScanSaveRequested extends ScanEvent {
 class ScanExportRequested extends ScanEvent {
   final String scanId;
   const ScanExportRequested({required this.scanId});
-}
-
-class ScanProgressUpdated extends ScanEvent {
-  final double coveragePercent;
-  final int pointCount;
-  const ScanProgressUpdated({
-    required this.coveragePercent,
-    required this.pointCount,
-  });
 }
