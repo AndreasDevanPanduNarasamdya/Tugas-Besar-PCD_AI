@@ -259,16 +259,35 @@ class ScanBloc extends Bloc<ScanEvent, ScanState> {
           List<Uint8List>.from(_capturedFrames); // Get the frames!
 
       final MeshData? mesh = await Isolate.run(() {
+        // 1. Prepare the raw RGB arrays
+        final decodedRgbFrames = <Uint8List>[];
+        final int targetSize =
+            size.toInt(); // Ensure it is an integer (e.g., 518)
+
+        for (final frameBytes in localFrames) {
+          // Decompress the JPEG
+          final image = img.decodeImage(frameBytes);
+          if (image == null) continue;
+
+          // Resize the photo to perfectly match the Depth Map & Mask dimensions
+          final resized =
+              img.copyResize(image, width: targetSize, height: targetSize);
+
+          // Extract the raw, flat RGB bytes so the Carver can map them instantly
+          decodedRgbFrames.add(resized.getBytes(order: img.ChannelOrder.rgb));
+        }
+
+        // 2. Run the Depth Unprojection
         return SpaceCarver.carveAndMesh(
           masks: localMasks,
           depthMaps: localDepthMaps,
           cameraPoses: localPoses,
-          rgbFrames: localFrames, // Pass them in!
+          rgbFrames: decodedRgbFrames, // Pass the RAW decoded pixels!
           focalLength: fLen,
           cx: size / 2.0,
           cy: size / 2.0,
-          maskWidth: size,
-          maskHeight: size,
+          maskWidth: targetSize,
+          maskHeight: targetSize,
           voxelResolution: 64,
           physicalSize: 1.0,
         );
