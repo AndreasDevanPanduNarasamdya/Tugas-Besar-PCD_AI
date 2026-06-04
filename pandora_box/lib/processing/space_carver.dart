@@ -1,15 +1,15 @@
 import 'dart:typed_data';
-import 'dart:math' as math;
 import 'package:vector_math/vector_math.dart';
-import '../config/env_config.dart';
 
 class PointCloudPoint {
   final Vector3 position;
-  final Vector3 normal;
+  Vector3 normal; // Mutable so we can update it during estimation
+  final Vector3 color;
 
   PointCloudPoint({
     required this.position,
     required this.normal,
+    required this.color,
   });
 }
 
@@ -37,32 +37,32 @@ class MeshData {
 class SpaceCarver {
   static MeshData carveAndMesh({
     required List<List<bool>> masks,
-    required List<Float32List> depthMaps,
+    required List<Float32List> depthMaps, // Kept so scan_bloc doesn't break
     required List<Matrix4> cameraPoses,
+    required List<Uint8List> rgbFrames,
     required double focalLength,
     required double cx,
     required double cy,
     int maskWidth = 518,
     int maskHeight = 518,
-    int voxelResolution = 64, // Used for downsampling grid size now
+    int voxelResolution = 64,
     double physicalSize = 1.0,
-    int tRes = 60,
-    int pRes = 60,
   }) {
-    // ── Step 1: DEPTH UNPROJECTION ───────────────────────────────────────────
-    // We shoot laser beams out of every camera to build the true physical shape
-    final rawPoints = _unprojectDepth(
+    // ── Step 1: VISUAL HULL CARVING (The Cylinder Fix) ──
+    final carvedPoints = _carve(
       masks: masks,
-      depthMaps: depthMaps,
       cameraPoses: cameraPoses,
+      rgbFrames: rgbFrames,
       focalLength: focalLength,
       cx: cx,
       cy: cy,
       width: maskWidth,
       height: maskHeight,
+      voxelResolution: voxelResolution,
+      physicalSize: physicalSize,
     );
 
-    if (rawPoints.isEmpty) {
+    if (carvedPoints.isEmpty) {
       return MeshData(
         vertices: Float32List(0),
         indices: Uint32List(0),
@@ -72,111 +72,120 @@ class SpaceCarver {
       );
     }
 
-    // ── Step 2: Voxel Downsampling ───────────────────────────────────────────
-    // Fusing 8 photos generates millions of points. We compress them into a
-    // clean grid to keep the Flutter engine running at 60 FPS.
+    // ── Step 2: Normal Estimation ──
     final double gridSize = physicalSize / voxelResolution;
-    final filteredPoints = _voxelFilter(rawPoints, gridSize);
+    _estimateNormals(carvedPoints, gridSize * 2.0);
 
-    // ── Step 3: Normal Estimation ────────────────────────────────────────────
-    final withNormals = _estimateNormals(filteredPoints, gridSize * 2.0);
-
-    // ── Step 4: Surface Splatting ────────────────────────────────────────────
-    return _generateSplatMesh(withNormals, gridSize * 1.5);
+    // ── Step 3: Surface Splatting ──
+    return _generateSplatMesh(carvedPoints, gridSize * 1.5);
   }
 
-  // ── Private: Unproject 2.5D Depth to 3D Space ─────────────────────────────
+  // ── Private: True 3D Visual Hull Carving ──
 
-  static List<PointCloudPoint> _unprojectDepth({
-    // <-- Now returns PointCloudPoint!
+  static List<PointCloudPoint> _carve({
     required List<List<bool>> masks,
-    required List<Float32List> depthMaps,
     required List<Matrix4> cameraPoses,
-    required List<Uint8List> rgbFrames, // <-- NEW: We pass the photos in!
+    required List<Uint8List> rgbFrames,
     required double focalLength,
     required double cx,
     required double cy,
     required int width,
     required int height,
+    required int voxelResolution,
+    required double physicalSize,
   }) {
-    final points = <PointCloudPoint>[];
-    const double nearPlane = 0.3;
-    const double depthRange = 3.0;
+    final result = <PointCloudPoint>[];
+    final halfSize = physicalSize / 2.0;
+    final stepSize = physicalSize / voxelResolution;
 
-    for (int cam = 0; cam < depthMaps.length; cam++) {
-      final pose = cameraPoses[cam];
-      final depthMap = depthMaps[cam];
-      final mask = masks[cam];
-      final rgb = rgbFrames[cam];
+    // THE ARCHITECT'S GATE: The maximum radius of our starting cylinder
+    final double radiusSq = halfSize * halfSize;
+    final inversePoses =
+        cameraPoses.map((p) => Matrix4.copy(p)..invert()).toList();
 
-      for (int y = 0; y < height; y += 3) {
-        for (int x = 0; x < width; x += 3) {
-          final idx = y * width + x;
+    for (int ix = 0; ix < voxelResolution; ix++) {
+      final x = -halfSize + ix * stepSize;
 
-          if (!mask[idx]) continue;
+      for (int iz = 0; iz < voxelResolution; iz++) {
+        final z = -halfSize + iz * stepSize;
 
-          // 1. Calculate 3D Position
-          final rawDepth = depthMap[idx];
-          final metricZ = nearPlane + (1.0 - rawDepth) * depthRange;
-          final localPoint = Vector3((x - cx) * metricZ / focalLength,
-              (y - cy) * metricZ / focalLength, metricZ);
-          final worldPoint = pose.transform3(localPoint);
+        // 1. IF OUTSIDE THE CYLINDER, VAPORIZE IMMEDIATELY
+        if ((x * x) + (z * z) > radiusSq) continue;
 
-          // 2. Grab the EXACT pixel color from the photo!
-          final colorIdx = idx * 3; // Assuming RGB byte order
-          final r = rgb[colorIdx] / 255.0;
-          final g = rgb[colorIdx + 1] / 255.0;
-          final b = rgb[colorIdx + 2] / 255.0;
+        for (int iy = 0; iy < voxelResolution; iy++) {
+          final y = -halfSize + iy * stepSize;
+          bool survives = true;
 
-          points.add(PointCloudPoint(
-              position: worldPoint,
-              color: Vector3(r, g, b), // Color baked instantly!
-              normal: Vector3(0, 0, 1)));
+          double rSum = 0, gSum = 0, bSum = 0;
+          int colorCount = 0;
+
+          // 2. THE LASER CUTTER
+          for (int cam = 0; cam < masks.length; cam++) {
+            final local = inversePoses[cam].transform(Vector4(x, y, z, 1.0));
+
+            if (local.z <= 0.0) {
+              survives = false;
+              break;
+            }
+
+            final u = ((local.x * focalLength) / local.z + cx).round();
+            final v = ((local.y * focalLength) / local.z + cy).round();
+
+            if (u < 0 || u >= width || v < 0 || v >= height) {
+              survives = false;
+              break;
+            }
+
+            final pixelIdx = v * width + u;
+            if (!masks[cam][pixelIdx]) {
+              survives = false;
+              break; // Shaved off by the silhouette!
+            }
+
+            // 3. BAKE THE COLOR
+            final rgb = rgbFrames[cam];
+            final colorIdx = pixelIdx * 3;
+            if (colorIdx + 2 < rgb.length) {
+              rSum += rgb[colorIdx] / 255.0;
+              gSum += rgb[colorIdx + 1] / 255.0;
+              bSum += rgb[colorIdx + 2] / 255.0;
+              colorCount++;
+            }
+          }
+
+          if (survives) {
+            final avgColor = colorCount > 0
+                ? Vector3(
+                    rSum / colorCount, gSum / colorCount, bSum / colorCount)
+                : Vector3(0.5, 0.5, 0.5);
+
+            result.add(PointCloudPoint(
+              position: Vector3(x, y, z),
+              normal: Vector3(0, 0, 1),
+              color: avgColor,
+            ));
+          }
         }
       }
     }
-    return points;
-  }
-  // ── Private: Voxel Grid Downsampling ──────────────────────────────────────
-
-  static List<Vector3> _voxelFilter(List<Vector3> points, double cellSize) {
-    final Map<String, List<Vector3>> grid = {};
-
-    for (final p in points) {
-      final gx = (p.x / cellSize).floor();
-      final gy = (p.y / cellSize).floor();
-      final gz = (p.z / cellSize).floor();
-      final key = '$gx,$gy,$gz';
-      grid.putIfAbsent(key, () => []).add(p);
-    }
-
-    // Average the points in each cell for a smooth surface
-    final filtered = <Vector3>[];
-    for (final cellPoints in grid.values) {
-      Vector3 sum = Vector3.zero();
-      for (final p in cellPoints) sum += p;
-      filtered.add(sum / cellPoints.length.toDouble());
-    }
-    return filtered;
+    return result;
   }
 
-  // ── Private: Normal Estimation ────────────────────────────────────────────
+  // ── Private: Normal Estimation ──
 
-  static List<PointCloudPoint> _estimateNormals(
-      List<Vector3> points, double searchRadius) {
-    // (We reuse your existing fast voxel grid normal estimator here)
+  static void _estimateNormals(
+      List<PointCloudPoint> points, double searchRadius) {
     final Map<String, List<int>> grid = {};
     for (int i = 0; i < points.length; i++) {
-      final p = points[i];
+      final p = points[i].position;
       final gx = (p.x / searchRadius).floor();
       final gy = (p.y / searchRadius).floor();
       final gz = (p.z / searchRadius).floor();
       grid.putIfAbsent('$gx,$gy,$gz', () => []).add(i);
     }
 
-    final result = <PointCloudPoint>[];
     for (int i = 0; i < points.length; i++) {
-      final p = points[i];
+      final p = points[i].position;
       final neighbors = <Vector3>[];
       final gx = (p.x / searchRadius).floor();
       final gy = (p.y / searchRadius).floor();
@@ -187,7 +196,8 @@ class SpaceCarver {
           for (int dz = -1; dz <= 1; dz++) {
             final cell = grid['${gx + dx},${gy + dy},${gz + dz}'];
             if (cell != null) {
-              for (final j in cell) if (j != i) neighbors.add(points[j]);
+              for (final j in cell)
+                if (j != i) neighbors.add(points[j].position);
             }
           }
         }
@@ -212,24 +222,22 @@ class SpaceCarver {
         normal = axis1.cross(axis2);
         if (normal.length < 1e-6) normal = Vector3(0, 0, 1);
         normal.normalize();
-        if (normal.dot(p) > 0) normal = -normal; // Face outward
+        if (normal.dot(p) > 0) normal = -normal;
       }
-
-      result.add(PointCloudPoint(position: p, normal: normal));
+      points[i].normal = normal;
     }
-    return result;
   }
 
-  // ── Private: Surface Splatting ────────────────────────────────────────────
+  // ── Private: Surface Splatting ──
 
   static MeshData _generateSplatMesh(
       List<PointCloudPoint> points, double splatSize) {
-    // (This remains exactly the same as your previous Splatting engine)
     final int vCount = points.length * 4;
     final int iCount = points.length * 6;
     final Float32List vertices = Float32List(vCount * 3);
     final Float32List normals = Float32List(vCount * 3);
     final Float32List uvs = Float32List(vCount * 2);
+    final Float32List colors = Float32List(vCount * 3);
     final Uint32List indices = Uint32List(iCount);
 
     int vIdx = 0;
@@ -240,12 +248,11 @@ class SpaceCarver {
       final p = points[i];
       final pos = p.position;
       final norm = p.normal;
+      final color = p.color;
 
-      Vector3 tangent;
-      if (norm.x.abs() > 0.9)
-        tangent = Vector3(0, 1, 0).cross(norm)..normalize();
-      else
-        tangent = Vector3(1, 0, 0).cross(norm)..normalize();
+      Vector3 tangent = (norm.x.abs() > 0.9)
+          ? (Vector3(0, 1, 0).cross(norm)..normalize())
+          : (Vector3(1, 0, 0).cross(norm)..normalize());
 
       final bitangent = norm.cross(tangent)..normalize();
       tangent.scale(halfSize);
@@ -274,6 +281,10 @@ class SpaceCarver {
         normals[(vIdx + j) * 3] = norm.x;
         normals[(vIdx + j) * 3 + 1] = norm.y;
         normals[(vIdx + j) * 3 + 2] = norm.z;
+        // Apply baked colors to the splat corners
+        colors[(vIdx + j) * 3] = color.x;
+        colors[(vIdx + j) * 3 + 1] = color.y;
+        colors[(vIdx + j) * 3 + 2] = color.z;
       }
 
       uvs[vIdx * 2] = 0;
@@ -301,7 +312,7 @@ class SpaceCarver {
       indices: indices,
       normals: normals,
       uvs: uvs,
-      colors: Float32List(vCount * 3),
+      colors: colors,
     );
   }
 }
