@@ -18,7 +18,7 @@ enum _MapMode { base, normal, combined }
 enum _DisplayMode { viewport, texture }
 
 class Preview3DScreen extends StatefulWidget {
-  const Preview3DScreen({Key? key}) : super(key: key);
+  const Preview3DScreen({Key? key}) : super(key: key); // No required this.scan!
 
   @override
   State<Preview3DScreen> createState() => _Preview3DScreenState();

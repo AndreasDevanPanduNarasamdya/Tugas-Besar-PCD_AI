@@ -14,25 +14,34 @@ void main() async {
   final repository = ScanRepository();
   await repository.init();
 
+  // We pass the repository into MyApp
   runApp(MyApp(repository: repository));
 }
 
 class MyApp extends StatelessWidget {
   final ScanRepository repository;
+
+  // Constructor expects the repository
   const MyApp({super.key, required this.repository});
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (_) => ScanBloc(
-        repository: repository,
-        exporter: ObjExporter(),
-      ),
-      child: MaterialApp(
-        title: 'Pandora Box',
-        theme: AppTheme.darkTheme,
-        home: const WelcomeScreen(),
-        debugShowCheckedModeBanner: false,
+    // 1. RepositoryProvider sits at the very top of the tree
+    return RepositoryProvider.value(
+      value: repository,
+      // 2. BlocProvider sits directly below it
+      child: BlocProvider(
+        create: (_) => ScanBloc(
+          repository: repository,
+          exporter: ObjExporter(),
+        ),
+        // 3. MaterialApp sits inside the BlocProvider
+        child: MaterialApp(
+          title: 'Pandora Box',
+          theme: AppTheme.darkTheme,
+          home: const WelcomeScreen(),
+          debugShowCheckedModeBanner: false,
+        ),
       ),
     );
   }

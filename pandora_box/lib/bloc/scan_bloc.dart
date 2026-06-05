@@ -245,18 +245,23 @@ class ScanBloc extends Bloc<ScanEvent, ScanState> {
     if (state.mesh == null) return;
     emit(state.copyWith(status: ScanStatus.saving));
     try {
-      final baseImg = img.decodeImage(state.baseMapBytes!)!;
-      final thumb = img.copyResize(baseImg, width: 128, height: 128);
-      final thumbBytes = Uint8List.fromList(
-          img.encodeJpg(thumb, quality: EnvConfig.thumbnailQuality));
+      // Generate a simple gradient thumbnail since we have no real texture yet
+      final thumbImg = img.Image(width: 128, height: 128);
+      img.fill(thumbImg, color: img.ColorRgb8(30, 30, 30));
+      final thumbBytes =
+          Uint8List.fromList(img.encodeJpg(thumbImg, quality: 60));
 
       final pointCloudBytes = state.mesh!.vertices.buffer.asUint8List();
+
+      // base/normal maps — use dummy until texture pipeline is wired
+      final dummyBytes =
+          Uint8List.fromList(img.encodeJpg(img.Image(width: 1, height: 1)));
 
       await _repository.saveScan(
         name: event.name,
         thumbnail: thumbBytes,
-        baseMap: state.baseMapBytes!,
-        normalMap: state.normalMapBytes!,
+        baseMap: state.baseMapBytes ?? dummyBytes,
+        normalMap: state.normalMapBytes ?? dummyBytes,
         pointCloud: pointCloudBytes,
         frameCount: state.capturedCount,
         faceCount: state.mesh!.faceCount,

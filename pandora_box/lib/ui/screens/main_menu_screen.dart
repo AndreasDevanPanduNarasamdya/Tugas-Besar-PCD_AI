@@ -2,50 +2,36 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'scan_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../../storage/scan_repository.dart';
+import '../../storage/scan_model.dart';
+import '../../bloc/scan_bloc.dart';
+import 'preview_3d_screen.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-class MainMenuScreen extends StatelessWidget {
+class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
 
   @override
+  State<MainMenuScreen> createState() => _MainMenuScreenState();
+}
+
+class _MainMenuScreenState extends State<MainMenuScreen> {
+  List<ScanModel> _scans = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadScans();
+  }
+
+  void _loadScans() {
+    final repo = context.read<ScanRepository>();
+    setState(() => _scans = repo.getAllScans());
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final List<Map<String, String>> models = [
-      {
-        'name': 'Car4',
-        'faces': '150',
-        'vertices': '33',
-        'edges': '94',
-        'triangles': '33',
-        'date': '05 November 2025',
-        'size': '431 MB',
-      },
-      {
-        'name': 'Water Bottle',
-        'faces': '150',
-        'vertices': '33',
-        'edges': '94',
-        'triangles': '33',
-        'date': '05 November 2025',
-        'size': '92 MB',
-      },
-      {
-        'name': 'Laptop5',
-        'faces': '150',
-        'vertices': '33',
-        'edges': '94',
-        'triangles': '33',
-        'date': '05 November 2025',
-        'size': '327 MB',
-      },
-      {
-        'name': 'Pringles Can',
-        'faces': '150',
-        'vertices': '33',
-        'edges': '94',
-        'triangles': '33',
-        'date': '05 November 2025',
-        'size': '327 MB',
-      },
-    ];
+    final List<Map<String, String>> models = [];
 
     return Scaffold(
       backgroundColor: AppTheme.darkBackground,
@@ -77,14 +63,41 @@ class MainMenuScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Expanded(
-                child: ListView.separated(
-                  itemCount: models.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final m = models[index];
-                    return _ModelCard(model: m);
-                  },
-                ),
+                child: _scans.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No scans yet.\nTap the button below to scan an object.',
+                          textAlign: TextAlign.center,
+                          style:
+                              TextStyle(color: AppTheme.textGrey, fontSize: 14),
+                        ),
+                      )
+                    : ListView.separated(
+                        itemCount: _scans.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          return _ModelCard(
+                              scan: _scans[index],
+                              // Change this back to onTap!
+                              onTap: () {
+                                // 1. Tell the Bloc to load this specific scan from the database
+                                context.read<ScanBloc>().add(ScanLoadRequested(
+                                    scanId: _scans[index].modelId));
+
+                                // 2. Navigate to the 3D screen
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    // Ensure 'const' is still removed here!
+                                    builder: (_) => Preview3DScreen(),
+                                  ),
+                                );
+                              },
+                              onDelete: () async {
+                                // ...
+                              });
+                        },
+                      ),
               ),
             ],
           ),
@@ -138,12 +151,11 @@ class MainMenuScreen extends StatelessWidget {
                     if (status.isGranted) {
                       // 2. Permission granted! Safe to spin up ARCore
                       if (context.mounted) {
-                        Navigator.push(
+                        await Navigator.push(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) => const ScanScreen(),
-                          ),
+                          MaterialPageRoute(builder: (_) => const ScanScreen()),
                         );
+                        if (context.mounted) _loadScans();
                       }
                     } else {
                       // 3. Permission denied. Block the crash and tell the user.
@@ -217,101 +229,110 @@ class _NavItem extends StatelessWidget {
 
 // ── Model card ───────────────────────────────────────────────────────────────
 class _ModelCard extends StatelessWidget {
-  final Map<String, String> model;
-  const _ModelCard({required this.model});
+  final ScanModel scan;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  const _ModelCard({
+    required this.scan,
+    required this.onTap,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1A1A),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // Thumbnail
-          ClipRRect(
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(12),
-              bottomLeft: Radius.circular(12),
-            ),
-            child: Container(
-              width: 110,
-              height: 110,
-              color: const Color(0xFF252525),
-              child: const Icon(
-                Icons.view_in_ar_outlined,
-                color: Color(0xFF555555),
-                size: 44,
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: () {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            backgroundColor: const Color(0xFF1A1A1A),
+            title: const Text('Delete scan?',
+                style: TextStyle(color: Colors.white)),
+            content: Text('Permanently delete "${scan.modelName}"?',
+                style: const TextStyle(color: AppTheme.textGrey)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel',
+                    style: TextStyle(color: AppTheme.textGrey)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  onDelete();
+                },
+                child: const Text('Delete',
+                    style: TextStyle(color: AppTheme.primaryRed)),
+              ),
+            ],
+          ),
+        );
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1A1A),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                bottomLeft: Radius.circular(12),
+              ),
+              child: Container(
+                width: 110,
+                height: 110,
+                color: const Color(0xFF252525),
+                child: const Icon(Icons.view_in_ar_outlined,
+                    color: Color(0xFF555555), size: 44),
               ),
             ),
-          ),
-
-          // Info
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Name
-                  Text(
-                    model['name']!,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-
-                  // Stats — wrapping naturally like the screenshot
-                  Text(
-                    '${model['faces']} Faces   '
-                    '${model['vertices']} Vertices   '
-                    '${model['edges']} Edges   '
-                    '${model['triangles']}',
-                    style: const TextStyle(
-                      color: AppTheme.textGrey,
-                      fontSize: 12,
-                    ),
-                  ),
-                  const Text(
-                    'Triangles',
-                    style: TextStyle(
-                      color: AppTheme.textGrey,
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-
-                  // Bottom row: date + size
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        model['date']!,
+            Expanded(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(scan.modelName,
                         style: const TextStyle(
-                          color: AppTheme.textDarkGrey,
-                          fontSize: 11,
-                        ),
-                      ),
-                      Text(
-                        model['size']!,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 5),
+                    Text(
+                      '${scan.faceCount} Faces   ${scan.vertexCount} Vertices   '
+                      '${scan.edgeCount} Edges   ${scan.triangleCount}',
+                      style: const TextStyle(
+                          color: AppTheme.textGrey, fontSize: 12),
+                    ),
+                    const Text('Triangles',
+                        style:
+                            TextStyle(color: AppTheme.textGrey, fontSize: 12)),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(scan.formattedDate,
+                            style: const TextStyle(
+                                color: AppTheme.textDarkGrey, fontSize: 11)),
+                        Text(scan.fileSizeLabel,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

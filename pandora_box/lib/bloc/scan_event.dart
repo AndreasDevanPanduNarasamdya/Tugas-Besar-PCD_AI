@@ -29,3 +29,12 @@ class ScanExportRequested extends ScanEvent {
   final String scanId;
   const ScanExportRequested({required this.scanId});
 }
+
+class ScanLoadRequested extends ScanEvent {
+  final String scanId;
+
+  const ScanLoadRequested({required this.scanId});
+
+  @override
+  List<Object?> get props => [scanId];
+}
